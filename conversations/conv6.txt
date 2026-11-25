@@ -1,0 +1,1118 @@
+actiontrack — Conversation 6 (M5 dedup & item IDs)
+Session: fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on M5 module
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: Bash] [Explore repo layout and history]
+  $ ls -la && cat CLAUDE.md 2>/dev/null; git log --oneline | head -20; find . -path ./node_modules -prune -o -path ./.git -prune -o -type f -print | head -100
+  [result]:
+    total 503
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 23:06 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 22:21 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121  53248 Nov 25 23:06 .coverage
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 23:10 .git
+    -rw-r--r-- 1 mohit.gupta_coditas 197121    140 Nov 25 20:37 .gitignore
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:45 .mypy_cache
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:34 .pytest_cache
+    -rw-r--r-- 1 mohit.gupta_coditas 197121      6 Nov 25 20:37 .python-version
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:35 .ruff_cache
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:30 .venv
+    -rw-r--r-- 1 mohit.gupta_coditas 197121    133 Nov 25 20:37 README.md
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:41 actiontrack
+    -rw-r--r-- 1 mohit.gupta_coditas 197121   1214 Nov 25 20:51 pyproject.toml
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 23:10 spec
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:51 tests
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 422054 Nov 25 20:51 uv.lock
+    9e129b8 Merge pull request #4 from mohit-gupta-coditas/feat/m4-item-extraction
+    ae8ba25 M4: link PR #4 on the status board
+    4e306ba M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+    64e2287 Merge pull request #3 from mohit-gupta-coditas/feat/m3-dates
+    f26ab9d M3: link PR #3 on the status board
+    49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    eb52c66 M2: people & owner resolution (attendee parsing, roster, owner rules, email derivation)
+    4877a8e M0: mark T0.12 done and record merge in status board
+    5cfe703 M1: tick T1.9 and link PR #1 on the status board
+    79eea25 Merge pull request #1 from mohit-gupta-coditas/feat/m1-note-loader
+    5795c54 M1: note loader (frontmatter/heading layouts, dates, attendees, skip reasons)
+    7ba9395 M0: foundation (packaging, errors, clock, config, console, models, CLI skeleton)
+    7c34282 Add implementation plan and module specs M1-M12
+    cd12aa1 Add requirements and architecture spec for actiontrack
+    ./.coverage
+    ./.gitignore
+    ./.mypy_cache/.gitignore
+    ./.mypy_cache/3.11/cache.0.db
+    ./.mypy_cache/3.11/cache.1.db
+    ./.mypy_cache/3.11/cache.10.db
+    ./.mypy_cache/3.11/cache.11.db
+    ./.mypy_cache/3.11/cache.12.db
+    ./.mypy_cache/3.11/cache.13.db
+    ./.mypy_cache/3.11/cache.14.db
+    ./.mypy_cache/3.11/cache.15.db
+    ./.mypy_cache/3.11/cache.2.db
+    ./.mypy_cache/3.11/cache.3.db
+    ./.mypy_cache/3.11/cache.4.db
+    ./.mypy_cache/3.11/cache.5.db
+    ./.mypy_cache/3.11/cache.6.db
+    ./.mypy_cache/3.11/cache.7.db
+    ./.mypy_cache/3.11/cache.8.db
+    ./.mypy_cache/3.11/cache.9.db
+    ./.mypy_cache/CACHEDIR.TAG
+    ./.pytest_cache/.gitignore
+    ./.pytest_cache/CACHEDIR.TAG
+    ./.pytest_cache/README.md
+    ./.pytest_cache/v/cache/lastfailed
+    ./.pytest_cache/v/cache/nodeids
+    ./.python-version
+    ./.ruff_cache/.gitignore
+    ... (73 more lines)
+
+  [tool: Bash] [List project source, spec, and test files]
+  $ find spec actiontrack tests -type f -not -path '*/__pycache__/*' | sort && cat README.md pyproject.toml .gitignore
+  [result]:
+    actiontrack/__init__.py
+    actiontrack/__main__.py
+    actiontrack/cli.py
+    actiontrack/clock.py
+    actiontrack/config.py
+    actiontrack/console.py
+    actiontrack/errors.py
+    actiontrack/models.py
+    actiontrack/parsing/__init__.py
+    actiontrack/parsing/dates.py
+    actiontrack/parsing/items.py
+    actiontrack/parsing/note_loader.py
+    actiontrack/parsing/people.py
+    spec/modules/M0-foundation/spec.md
+    spec/modules/M0-foundation/tasks.md
+    spec/modules/M0-foundation/tests.md
+    spec/modules/M1-note-loader/spec.md
+    spec/modules/M1-note-loader/tasks.md
+    spec/modules/M1-note-loader/tests.md
+    spec/modules/M10-gmail-mcp/spec.md
+    spec/modules/M10-gmail-mcp/tasks.md
+    spec/modules/M10-gmail-mcp/tests.md
+    spec/modules/M11-followup/spec.md
+    spec/modules/M11-followup/tasks.md
+    spec/modules/M11-followup/tests.md
+    spec/modules/M12-e2e-release/spec.md
+    spec/modules/M12-e2e-release/tasks.md
+    spec/modules/M12-e2e-release/tests.md
+    spec/modules/M2-people/spec.md
+    spec/modules/M2-people/tasks.md
+    spec/modules/M2-people/tests.md
+    spec/modules/M3-dates/spec.md
+    spec/modules/M3-dates/tasks.md
+    spec/modules/M3-dates/tests.md
+    spec/modules/M4-item-extraction/spec.md
+    spec/modules/M4-item-extraction/tasks.md
+    spec/modules/M4-item-extraction/tests.md
+    spec/modules/M5-dedup/spec.md
+    spec/modules/M5-dedup/tasks.md
+    spec/modules/M5-dedup/tests.md
+    spec/modules/M6-store/spec.md
+    spec/modules/M6-store/tasks.md
+    spec/modules/M6-store/tests.md
+    spec/modules/M7-ingest/spec.md
+    spec/modules/M7-ingest/tasks.md
+    spec/modules/M7-ingest/tests.md
+    spec/modules/M8-list-done/spec.md
+    spec/modules/M8-list-done/tasks.md
+    spec/modules/M8-list-done/tests.md
+    spec/modules/M9-email-render/spec.md
+    spec/modules/M9-email-render/tasks.md
+    spec/modules/M9-email-render/tests.md
+    spec/plan.md
+    spec/requirements.md
+    tests/__init__.py
+    tests/conftest.py
+    tests/fixtures/notes/loader/attendees_heading.md
+    tests/fixtures/notes/loader/bold_date_line.md
+    tests/fixtures/notes/loader/date_no_year.md
+    tests/fixtures/notes/loader/empty_attendees.md
+    ... (96 more lines)
+
+  [tool: Bash] [Read M5 dedup spec, tasks, tests]
+  $ cat spec/modules/M5-dedup/spec.md spec/modules/M5-dedup/tasks.md spec/modules/M5-dedup/tests.md
+  [result]:
+    # M5 — Dedup & Item IDs
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M0 (types). Consumes `ParsedItem` (from M4) and `ExistingItem` (from M6) |
+    | **Files** | `actiontrack/dedup.py` |
+    | **REQ IDs** | REQ-DEDUP-01 … 06, REQ-ID-01, REQ-ID-02 |
+    
+    ## 1. Purpose
+    Group every parsed source (each checkbox occurrence across all notes) into unique action items, decide each group's merged
+    fields, and give it a stable ID. A **pure** function: the same inputs always produce the same output.
+    
+    ## 2. Interface
+    
+    ```python
+    @dataclass(frozen=True)
+    class DedupConfig:
+        fuzzy_enabled: bool = True
+        threshold: int = 88
+        scorer: Callable[[str, str], float] | None = None   # default rapidfuzz.fuzz.token_set_ratio; injectable for tests
+    
+    @dataclass(frozen=True)
+    class DedupResult:
+        groups: tuple[ItemGroup, ...]
+        decisions: tuple[MergeDecision, ...]
+        orphaned_ids: tuple[str, ...]          # existing ids that matched no source
+    
+    def normalize_task(task: str) -> str
+    def make_item_id(owner_key: str | None, task_norm: str) -> str        # 40-hex sha1
+    def group_items(sources: Sequence[ParsedItem], existing: Sequence[ExistingItem], cfg: DedupConfig) -> DedupResult
+    def shortest_unique_prefixes(ids: Iterable[str], *, min_len: int = 6) -> dict[str, str]
+    def resolve_prefix(prefix: str, ids: Iterable[str]) -> str            # UserInputError on <4 chars / no match / ambiguity
+    ```
+    
+    ## 3. Normalization (REQ-DEDUP-01)
+    1. NFKC, casefold.
+    2. Replace any character that is not `[\w\s]` with a space.
+    3. Remove the stop-words `the`, `a`, `an`.
+    4. Collapse whitespace and trim.
+    
+    `"Send the revised Quote!"` → `send revised quote`. Digits are kept (`v2` ≠ `v3`).
+    
+    ## 4. Grouping algorithm (REQ-DEDUP-02 … 04)
+    
+    Sources are processed in the deterministic order `(meeting_date, str(note_path), line_no)`.
+    
+    ```
+    groups = []                       # each: owner_key, canonical_norm (first member), norms set, members, existing_id?
+    for each source s:
+        n = normalize_task(s.task); k = s.owner.owner_key
+        1. EXACT: a group with same k (None == None allowed) and n ∈ group.norms        → join, decision(kind=exact, score=100)
+        2. FUZZY (only if cfg.fuzzy_enabled and k is not None):
+             best = max over groups with same k of scorer(n, group.canonical_norm)
+             if best ≥ threshold → join best group (ties → earliest-created group), decision(kind=fuzzy, score=best)
+        3. else → new group
+    ```
+    - Comparing against the group's **canonical** norm (not every member) prevents chain merges (A≈B, B≈C, A≉C).
+    - Items with no owner can only merge exactly (REQ-DEDUP-04).
+    - Items with `AMBIGUOUS_OWNER` have `owner_key=None`. They merge exactly with each other only when their `candidates` are also equal.
+    ... (78 more lines)
+
+  [tool: Bash] [Read models, errors, and plan]
+  $ cat actiontrack/models.py actiontrack/errors.py && cat spec/plan.md
+  [result]:
+    """Shared data contracts passed between modules (M0 spec §8).
+    
+    Later modules consume these types. Fields may only be added by changing the M0 spec first.
+    """
+    
+    from __future__ import annotations
+    
+    import dataclasses
+    from collections.abc import Mapping
+    from dataclasses import dataclass
+    from datetime import date, datetime
+    from enum import Enum, StrEnum
+    from pathlib import Path
+    from typing import Any, Literal
+    
+    JSON_SCHEMA_VERSION = 1
+    
+    
+    class Flag(StrEnum):
+        UNASSIGNED = "unassigned"
+        AMBIGUOUS_OWNER = "ambiguous_owner"
+        OWNER_NOT_ATTENDEE = "owner_not_attendee"
+        MULTI_OWNER = "multi_owner"
+        NO_DUE = "no_due"
+        UNPARSED_DUE = "unparsed_due"
+        ORPHANED = "orphaned"
+    
+    
+    class SkipReason(StrEnum):
+        EMPTY_FILE = "empty_file"
+        BINARY_FILE = "binary_file"
+        INVALID_ENCODING = "invalid_encoding"
+        INVALID_FRONTMATTER = "invalid_frontmatter"
+        MISSING_DATE = "missing_date"
+        UNPARSEABLE_DATE = "unparseable_date"
+        MISSING_ATTENDEES = "missing_attendees"
+        READ_ERROR = "read_error"
+        INTERNAL_ERROR = "internal_error"
+    
+    
+    class WarningCode(StrEnum):
+        MALFORMED_CHECKBOX = "malformed_checkbox"
+        EMPTY_TASK = "empty_task"
+    
+    
+    @dataclass(frozen=True, slots=True)
+    class NoteMeta:
+        """M1 output."""
+    
+        path: Path
+        sha256: str
+        meeting_date: date
+        title: str | None
+        attendees_raw: tuple[str, ...]
+        # (1-based line number in file, text) of the body, LF-normalized
+        lines: tuple[tuple[int, str], ...]
+    
+    
+    @dataclass(frozen=True, slots=True)
+    class SkipRecord:
+    ... (329 more lines)
+
+  [tool: Bash] [Inspect M4 commit, code, and test style]
+  $ git show --stat 4e306ba ae8ba25 | cat && cat actiontrack/parsing/items.py tests/conftest.py tests/unit/parsing/conftest.py && head -80 tests/unit/parsing/test_items.py && cat spec/modules/M4-item-extraction/tasks.md
+  [result]:
+    commit 4e306baa8927963d5ba2e41460820b375980be96
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Wed Nov 25 23:08:22 2026 +0530
+    
+        M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+        
+        - parsing/items.py: classify_line (valid/malformed/empty checkboxes, code fences),
+          clean_inline_markdown, split_owner (leading name + connector, multi-owner, label
+          prefix, @mention fallback) and extract_items wiring M2 owner resolution and M3 dues.
+        - M3: a due expression also stops at `)`, so `(due 2026-12-01)` yields `due 2026-12-01`.
+        - Tests TC-M4-01..23 plus unit tests for the helpers; test builders in tests/unit/parsing/conftest.py.
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+     actiontrack/parsing/dates.py             |   4 +-
+     actiontrack/parsing/items.py             | 162 +++++++++++++++
+     spec/modules/M3-dates/spec.md            |   2 +-
+     spec/modules/M4-item-extraction/spec.md  |  11 +-
+     spec/modules/M4-item-extraction/tasks.md |  14 +-
+     spec/plan.md                             |   4 +-
+     tests/unit/parsing/conftest.py           |  36 ++++
+     tests/unit/parsing/test_items.py         | 331 +++++++++++++++++++++++++++++++
+     8 files changed, 551 insertions(+), 13 deletions(-)
+    
+    commit ae8ba25d4e8f95801cba960542f3b10a48a23655
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Wed Nov 25 23:08:39 2026 +0530
+    
+        M4: link PR #4 on the status board
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+     spec/plan.md | 2 +-
+     1 file changed, 1 insertion(+), 1 deletion(-)
+    """Action-item extraction: checkbox lines → owner / task / due (M4 spec).
+    
+    Each checkbox line becomes one `ParsedItem`. A line that looks like a broken checkbox becomes a
+    `LineWarning` instead, and everything else in the note is ordinary text.
+    """
+    
+    from __future__ import annotations
+    
+    import re
+    from typing import NamedTuple
+    
+    from actiontrack.models import (
+        Flag,
+        LineWarning,
+        NoteMeta,
+        ParsedItem,
+        WarningCode,
+    )
+    from actiontrack.parsing.dates import DateOrder, extract_due
+    from actiontrack.parsing.people import Roster
+    
+    _FENCE = re.compile(r"^\s*(?:```|~~~)")
+    _CHECKBOX = re.compile(r"^\s*[-*+]\s+\[(?P<marker>[ xX])\]\s+(?P<body>\S.*)$")
+    _EMPTY_CHECKBOX = re.compile(r"^\s*[-*+]\s+\[[ xX]\]\s*$")
+    _MALFORMED = (
+        re.compile(r"^\s*[-*+]\[[ xX]?\]"),  # no space after the bullet: `-[ ] ...`
+    ... (288 more lines)
+
+Reading the M6/M7 specs for how `done_at` is set and what `existing` looks like. After that I'll create the `feat/m5-dedup` branch and write the tests and `dedup.py`.
+
+  [tool: Bash] [Find done_at/orphan handling in M6/M7 specs]
+  $ grep -n -i "done_at\|orphan\|ExistingItem\|group_items\|decision" spec/modules/M6-store/spec.md spec/modules/M7-ingest/spec.md spec/requirements.md | head -60; grep -n "REQ-DEDUP\|REQ-ID" spec/requirements.md
+  [result]:
+    spec/modules/M6-store/spec.md:47:  done_source TEXT CHECK (done_source IN ('note','cli')), done_at TIMESTAMP,
+    spec/modules/M6-store/spec.md:94:    def existing(self) -> list[ExistingItem]
+    spec/modules/M6-store/spec.md:96:        # upsert every group; reassign item_sources.item_id; add ORPHANED flag to orphaned_ids (status untouched);
+    spec/modules/M6-store/spec.md:97:        # remove ORPHANED from groups that have sources again
+    spec/modules/M6-store/spec.md:113:    include_orphaned: bool = False
+    spec/modules/M6-store/spec.md:126:- Orphaned items are excluded unless `include_orphaned` is set or `flag == ORPHANED` (gap G3).
+    spec/modules/M7-ingest/spec.md:44:5. **Regroup** (always, even if nothing changed, so that config changes apply): `group_items(SourceRepo.all(), ItemRepo.existing(),
+    spec/modules/M7-ingest/spec.md:45:   DedupConfig(...))` → `ItemRepo.apply_groups(result)` in one transaction. Orphaned items get the flag and their status is untouched
+    spec/modules/M7-ingest/spec.md:47:6. **Report** (REQ-INGEST-07): build the `IngestReport` (counts from steps 2–5, `flag_counts` over the current items, decisions).
+    spec/modules/M7-ingest/spec.md:63:- `-v` → adds a `Merges:` section listing each `MergeDecision` (`a3f91c ← notes/x.md:12  fuzzy 91.7  "send revised quote"`).
+    spec/requirements.md:31:## 3. Decisions Summary
+    spec/requirements.md:33:| # | Topic | Decision |
+    spec/requirements.md:152:4. Each merge decision is logged with its score in the ingest report (verbose mode), so the threshold can be tuned.
+    spec/requirements.md:186:  done_at       TIMESTAMP,
+    spec/requirements.md:231:- Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+    spec/requirements.md:255:| `--flag NAME` | e.g. `ambiguous_owner`, `orphaned` |
+    spec/requirements.md:263:- Resolves the ID prefix (§8.1) and sets `status='done'`, `done_source='cli'`, `done_at=now`.
+    spec/requirements.md:532:| REQ-DEDUP-06 | Merge decisions are logged with their score | §7 |
+    spec/requirements.md:544:| REQ-INGEST-04 | Items that lose all their sources are flagged `orphaned`, never deleted | §9.1 |
+    527:| REQ-DEDUP-01 | Task normalization | §5 |
+    528:| REQ-DEDUP-02 | Exact pass: same owner + same normalized task | §7 |
+    529:| REQ-DEDUP-03 | Fuzzy pass: same owner, `token_set_ratio ≥ threshold`. Configurable, `--no-fuzzy` | §7 |
+    530:| REQ-DEDUP-04 | Items with no owner are never fuzzy-merged | §7 |
+    531:| REQ-DEDUP-05 | Merge rules: all sources kept, latest due wins, done is sticky, first/last seen | §7, D8 |
+    532:| REQ-DEDUP-06 | Merge decisions are logged with their score | §7 |
+    533:| REQ-ID-01 | Content-hash item IDs that stay the same across re-ingest and rebuild | §8.1 |
+    534:| REQ-ID-02 | 6-char display. Any unique prefix of 4+ chars accepted. Ambiguity is an error | §8.1 |
+
+Creating the branch and writing `actiontrack/dedup.py`.
+
+  [tool: Bash] [Create M5 branch and check due flags in M3]
+  $ git checkout -b feat/m5-dedup && grep -n "NO_DUE\|UNPARSED_DUE" actiontrack/parsing/dates.py | head
+  [result]:
+    Switched to a new branch 'feat/m5-dedup'
+    65:        return DueResolution(None, None, frozenset({Flag.NO_DUE}), None)
+    70:        flags=frozenset() if due_date else frozenset({Flag.UNPARSED_DUE}),
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\dedup.py
+    """Dedup & item IDs: parsed sources → unique action items with stable IDs (M5 spec).
+    
+    `group_items` is pure: the same sources and existing items always give the same groups, whatever
+    order they are passed in.
+    """
+    
+    from __future__ import annotations
+    
+    import hashlib
+    import re
+    import unicodedata
+    from collections.abc import Callable, Iterable, Sequence
+    from dataclasses import dataclass, field
+    
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import (
+        ExistingItem,
+        Flag,
+        ItemGroup,
+        MergeDecision,
+        OwnerResolution,
+        ParsedItem,
+    )
+    
+    Scorer = Callable[[str, str], float]
+    
+    _NON_WORD = re.compile(r"[^\w\s]")
+    _STOP_WORDS = frozenset({"the", "a", "an"})
+    _HEX = re.compile(r"^[0-9a-f]+$")
+    _OWNER_FLAGS = frozenset(
+        {Flag.UNASSIGNED, Flag.AMBIGUOUS_OWNER, Flag.OWNER_NOT_ATTENDEE, Flag.MULTI_OWNER}
+    )
+    _MIN_PREFIX = 4
+    
+    
+    @dataclass(frozen=True)
+    class DedupConfig:
+        fuzzy_enabled: bool = True
+        threshold: int = 88
+        scorer: Scorer | None = None  # default rapidfuzz.fuzz.token_set_ratio; injectable for tests
+    ... (195 more lines)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\dedup.py (file state is current in your context — no need to Read it back)
+
+Fixing the `Literal` typing before mypy flags it.
+
+  [tool: Bash] [Patch typing, then format, lint and typecheck]
+  $ python - <<'EOF'
+    import re,io
+    p='actiontrack/dedup.py'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace("from dataclasses import dataclass, field\n","from dataclasses import dataclass, field\nfrom datetime import datetime\nfrom typing import Literal\n")
+    s=s.replace('''        target: _Group | None = None
+            kind: str = "exact"
+    ''','''        kind: Literal["exact", "fuzzy"] = "exact"
+    ''')
+    s=s.replace('''                    kind="fuzzy" if kind == "fuzzy" else "exact",''','''                    kind=kind,''')
+    s=s.replace('''    e = g.existing
+        if e''','''    e = g.existing
+        status: Literal["open", "done"]
+        done_source: Literal["note", "cli"] | None
+        done_at: datetime | None
+        if e''')
+    s=s.replace('''    due_from = max(dated or [m for m in g.members if m.due.due_raw is not None] or [latest],
+                       key=lambda m: (m.meeting_date, m.line_no))''','''    # Latest meeting with a resolved due wins (ties → later line); else keep an unparsed phrase.
+        candidates = dated or [m for m in g.members if m.due.due_raw is not None] or [latest]
+        due_from = max(candidates, key=lambda m: (m.meeting_date, m.line_no))''')
+    s=s.replace('''    flags = frozenset().union(*(m.flags & _OWNER_FLAGS for m in g.members))''','''    flags: frozenset[Flag] = frozenset().union(*(m.flags & _OWNER_FLAGS for m in g.members))''')
+    open(p,'w',encoding='utf-8').write(s)
+    EOF
+    uv run ruff format actiontrack/dedup.py && uv run ruff check actiontrack/dedup.py && uv run mypy actiontrack
+  [result]:
+    1 file left unchanged
+    All checks passed!
+    Success: no issues found in 14 source files
+    [This command modified 1 file you've previously read: actiontrack\dedup.py. Call Read before editing.]
+
+Now the test builder and the 25 test cases.
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\conftest.py
+    """Test builders shared by the unit tests: hand-built `ParsedItem` sources."""
+    
+    from __future__ import annotations
+    
+    from datetime import date
+    from pathlib import Path
+    
+    from actiontrack.models import DueResolution, Flag, OwnerResolution, ParsedItem
+    
+    
+    def owner(key: str | None, *, candidates: tuple[str, ...] = ()) -> OwnerResolution:
+        """An owner resolved to `key`, unassigned for None, or ambiguous between `candidates`."""
+        if candidates:
+            flags = frozenset({Flag.AMBIGUOUS_OWNER})
+        elif key is None:
+            flags = frozenset({Flag.UNASSIGNED})
+        else:
+            flags = frozenset()
+        display = key.split("@")[0] if key else None
+        return OwnerResolution(key, display, display, flags, candidates)
+    
+    
+    def src(
+        owner_: str | OwnerResolution | None,
+        task: str,
+        meeting: str | date,
+        line: int = 1,
+        due: str | date | None = None,
+        checked: bool = False,
+        path: str = "a.md",
+        due_raw: str | None = None,
+    ) -> ParsedItem:
+        """One source. `due` is the resolved date; `due_raw` alone makes an unparsed phrase."""
+        o = owner_ if isinstance(owner_, OwnerResolution) else owner(owner_)
+        due_date = date.fromisoformat(due) if isinstance(due, str) else due
+        if due_date is not None:
+            d = DueResolution(due_date, due_raw or f"by {due_date.isoformat()}", frozenset(), None)
+        elif due_raw is not None:
+            d = DueResolution(None, due_raw, frozenset({Flag.UNPARSED_DUE}), None)
+        else:
+    ... (13 more lines)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\test_dedup.py
+    from __future__ import annotations
+    
+    import hashlib
+    import random
+    import sys
+    from datetime import date, datetime
+    from pathlib import Path
+    
+    import pytest
+    
+    from actiontrack.dedup import (
+        DedupConfig,
+        DedupResult,
+        group_items,
+        make_item_id,
+        normalize_task,
+        resolve_prefix,
+        shortest_unique_prefixes,
+    )
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import ExistingItem, Flag, ParsedItem
+    from tests.unit.conftest import owner, src
+    
+    PRIYA = "priya.shah@coditas.com"
+    RAHUL = "rahul.mehta@coditas.com"
+    DEFAULT = DedupConfig()
+    
+    
+    def group(*sources: ParsedItem, cfg: DedupConfig = DEFAULT, existing: tuple[ExistingItem, ...] = ()
+              ) -> DedupResult:
+        return group_items(list(sources), list(existing), cfg)
+    
+    
+    def stub(scores: dict[frozenset[str], float]) -> DedupConfig:
+        """A config whose scorer looks pairs up in `scores` (order-insensitive), 0 otherwise."""
+        return DedupConfig(scorer=lambda a, b: scores.get(frozenset({a, b}), 0.0))
+    
+    
+    def existing_item(
+        item_id: str,
+    ... (369 more lines)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\conftest.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\test_dedup.py (file state is current in your context — no need to Read it back)
+
+Two tests came out sloppy (a slots hack and a leftover `if False`), so I'm cleaning those up with `dataclasses.replace` before running anything.
+
+  [tool: Bash] [Clean up tests, lint, and run M5 tests with coverage]
+  $ python - <<'EOF'
+    p='tests/unit/test_dedup.py'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace("import hashlib\nimport random\nimport sys\n","import dataclasses\nimport hashlib\nimport random\nimport sys\n")
+    old_start=s.index("def test_owner_flags_union_and_latest_owner_display")
+    old_end=s.index("    (g,) = group(a, multi).groups")
+    s=s[:old_start]+'''def test_owner_flags_union_and_latest_owner_display() -> None:
+        later = dataclasses.replace(
+            owner(PRIYA), owner_display="Priya S", owner_raw="Priya S",
+            flags=frozenset({Flag.OWNER_NOT_ATTENDEE}),
+        )
+        a = src(PRIYA, "send quote", "2026-11-04")
+        multi = src(later, "send quote", "2026-11-18")
+        multi = dataclasses.replace(multi, flags=multi.flags | {Flag.MULTI_OWNER})
+    '''+s[old_end:]
+    s=s.replace('''        (rid, "exact", 100.0, (Path("c.md"), 5), "book venue")
+            if False
+            else (pid, "exact", 100.0, (Path("b.md"), 2), "send revised quote"),''','''        (pid, "exact", 100.0, (Path("b.md"), 2), "send revised quote"),''')
+    open(p,'w',encoding='utf-8').write(s)
+    EOF
+    uv run ruff format tests/unit && uv run ruff check tests/unit actiontrack && uv run pytest tests/unit/test_dedup.py -q --cov=actiontrack.dedup --cov-report=term-missing 2>&1 | tail -30
+  [result]: (error)
+    Exit code 1
+    1 file reformatted, 14 files left unchanged
+    RUF001 String contains ambiguous `Ａ` (FULLWIDTH LATIN CAPITAL LETTER A). Did you mean `A` (LATIN CAPITAL LETTER A)?
+      --> tests\unit\test_dedup.py:64:30
+       |
+    63 | def test_normalize_task_nfkc_and_stop_words_only_as_words() -> None:
+    64 |     assert normalize_task("  Ａn  ANALYSIS—of   the theme  ") == "analysis of theme"
+       |                              ^^
+    
+    Found 1 error.
+
+  [tool: Bash] [Use escapes for fullwidth char, rerun checks and tests]
+  $ sed -i 's|normalize_task("  Ａn  ANALYSIS—of   the theme  ")|normalize_task("  \\uff21n  ANALYSIS\\u2014of   the theme  ")|' tests/unit/test_dedup.py && grep -n "uff21" tests/unit/test_dedup.py && uv run ruff format tests/unit && uv run ruff check tests/unit actiontrack && uv run mypy actiontrack && uv run pytest tests/unit/test_dedup.py -q --cov=actiontrack.dedup --cov-report=term-missing 2>&1 | tail -30
+  [result]: (error)
+    Exit code 1
+
+  [tool: Bash] [Locate the NFKC test line]
+  $ grep -n "normalize_task(\"  " tests/unit/test_dedup.py
+  [result]:
+    64:    assert normalize_task("  Ff21n  ANALYSIS2014of   the theme  ") == "analysis of theme"
+
+  [tool: Bash] [Fix escapes, rerun checks and tests]
+  $ python - <<'EOF'
+    p='tests/unit/test_dedup.py'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace('normalize_task("  Ff21n  ANALYSIS2014of   the theme  ")','normalize_task("  \\uff21n  ANALYSIS\\u2014of   the theme  ")')
+    open(p,'w',encoding='utf-8').write(s)
+    EOF
+    grep -n 'normalize_task("  ' tests/unit/test_dedup.py; uv run ruff format tests/unit && uv run ruff check tests/unit actiontrack && uv run mypy actiontrack && uv run pytest tests/unit/test_dedup.py -q --cov=actiontrack.dedup --cov-report=term-missing 2>&1 | tail -30
+  [result]: (error)
+    Exit code 1
+    64:    assert normalize_task("  Ａn  ANALYSIS—of   the theme  ") == "analysis of theme"
+    15 files left unchanged
+    RUF001 String contains ambiguous `Ａ` (FULLWIDTH LATIN CAPITAL LETTER A). Did you mean `A` (LATIN CAPITAL LETTER A)?
+      --> tests\unit\test_dedup.py:64:30
+       |
+    63 | def test_normalize_task_nfkc_and_stop_words_only_as_words() -> None:
+    64 |     assert normalize_task("  Ａn  ANALYSIS—of   the theme  ") == "analysis of theme"
+       |                              ^^
+    
+    Found 1 error.
+
+Shell escaping keeps eating the backslashes, so I'm switching to the Edit tool for this line.
+
+  [tool: Read] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\test_dedup.py
+  [result]:
+    62	
+    63	def test_normalize_task_nfkc_and_stop_words_only_as_words() -> None:
+    64	    assert normalize_task("  Ａn  ANALYSIS—of   the theme  ") == "analysis of theme"
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\test_dedup.py
+    - old:
+          assert normalize_task("  Ａn  ANALYSIS—of   the theme  ") == "analysis of theme"
+    + new:
+          fullwidth_a, em_dash = "Ａ", "—"
+          raw = f"  {fullwidth_a}n  ANALYSIS{em_dash}of   the theme  "
+          assert normalize_task(raw) == "analysis of theme"
+  [tool: Bash] [Rerun lint, typecheck, M5 tests with coverage]
+  $ uv run ruff format tests/unit && uv run ruff check tests/unit actiontrack && uv run mypy actiontrack && uv run pytest tests/unit/test_dedup.py -q --cov=actiontrack.dedup --cov-report=term-missing 2>&1 | tail -30
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\test_dedup.py has been updated successfully.
+
+  [result]: (error)
+    Exit code 1
+    15 files left unchanged
+    RUF001 String contains ambiguous `Ａ` (FULLWIDTH LATIN CAPITAL LETTER A). Did you mean `A` (LATIN CAPITAL LETTER A)?
+      --> tests\unit\test_dedup.py:64:29
+       |
+    63 | def test_normalize_task_nfkc_and_stop_words_only_as_words() -> None:
+    64 |     fullwidth_a, em_dash = "Ａ", "—"
+       |                             ^^
+    65 |     raw = f"  {fullwidth_a}n  ANALYSIS{em_dash}of   the theme  "
+    66 |     assert normalize_task(raw) == "analysis of theme"
+       |
+    
+    Found 1 error.
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\test_dedup.py
+    - old:
+          fullwidth_a, em_dash = "Ａ", "—"
+    + new:
+          fullwidth_a, em_dash = chr(0xFF21), chr(0x2014)
+  [tool: Bash] [Rerun lint, typecheck, M5 tests with coverage]
+  $ uv run ruff format tests/unit && uv run ruff check tests/unit actiontrack && uv run mypy actiontrack && uv run pytest tests/unit/test_dedup.py -q --cov=actiontrack.dedup --cov-report=term-missing 2>&1 | tail -30
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\test_dedup.py has been updated successfully.
+
+  [result]:
+    15 files left unchanged
+    All checks passed!
+    Success: no issues found in 14 source files
+    tests\unit\test_dedup.py:160: AssertionError
+    _____________________ test_fuzzy_tie_joins_earliest_group _____________________
+    
+        def test_fuzzy_tie_joins_earliest_group() -> None:
+            cfg = stub({frozenset({"a", "c"}): 95, frozenset({"b", "c"}): 95})
+            r = group(
+                src(PRIYA, "A", "2026-11-04", 1),
+                src(PRIYA, "B", "2026-11-04", 2),
+                src(PRIYA, "C", "2026-11-04", 3),
+                cfg=cfg,
+            )
+    >       assert [[s.task for s in g.sources] for g in r.groups] == [["A", "C"], ["B"]]
+    E       AssertionError: assert [['A'], ['B', 'C']] == [['A', 'C'], ['B']]
+    E         
+    E         At index 0 diff: ['A'] != ['A', 'C']
+    E         Use -v to get more diff
+    
+    tests\unit\test_dedup.py:171: AssertionError
+    =============================== tests coverage ================================
+    ______________ coverage: platform win32, python 3.12.10-final-0 _______________
+    
+    Name                   Stmts   Miss  Cover   Missing
+    ----------------------------------------------------
+    actiontrack\dedup.py     135      0   100%
+    ----------------------------------------------------
+    TOTAL                    135      0   100%
+    =========================== short test summary info ===========================
+    FAILED tests/unit/test_dedup.py::test_TC_M5_12_no_chain_merges - AssertionErr...
+    FAILED tests/unit/test_dedup.py::test_fuzzy_tie_joins_earliest_group - Assert...
+    2 failed, 36 passed in 7.89s
+
+The two failures are a test bug, not a code bug: `"A"` normalizes to an empty string because `a` is a stop word. Renaming the test tasks to fix it.
+
+  [tool: Bash] [Rename stub tasks and run full test suite]
+  $ python - <<'EOF'
+    p='tests/unit/test_dedup.py'
+    s=open(p,encoding='utf-8').read()
+    import re
+    start=s.index("def test_TC_M5_12_no_chain_merges"); end=s.index("def test_TC_M5_25")
+    block=s[start:end]
+    for a,b in [('"a"','"alpha"'),('"b"','"beta"'),('"c"','"gamma"'),('"A"','"Alpha"'),('"B"','"Beta"'),('"C"','"Gamma"')]:
+        block=block.replace(a,b)
+    s=s[:start]+block+s[end:]
+    open(p,'w',encoding='utf-8').write(s)
+    EOF
+    uv run ruff format tests/unit && uv run ruff check . && uv run mypy actiontrack && uv run pytest -q --cov=actiontrack --cov-report=term 2>&1 | tail -25
+  [result]:
+    1 file reformatted, 14 files left unchanged
+    All checks passed!
+    Success: no issues found in 14 source files
+    ........................................................................ [ 77%]
+    ........................................................................ [ 96%]
+    .............                                                            [100%]
+    =============================== tests coverage ================================
+    ______________ coverage: platform win32, python 3.12.10-final-0 _______________
+    
+    Name                                 Stmts   Miss  Cover
+    --------------------------------------------------------
+    actiontrack\__init__.py                  1      0   100%
+    actiontrack\__main__.py                  3      3     0%
+    actiontrack\cli.py                     116      3    97%
+    actiontrack\clock.py                    33      0   100%
+    actiontrack\config.py                  156      3    98%
+    actiontrack\console.py                  66      2    97%
+    actiontrack\dedup.py                   135      0   100%
+    actiontrack\errors.py                   21      0   100%
+    actiontrack\models.py                  155      0   100%
+    actiontrack\parsing\__init__.py          0      0   100%
+    actiontrack\parsing\dates.py           101      4    96%
+    actiontrack\parsing\items.py            92      0   100%
+    actiontrack\parsing\note_loader.py     176      0   100%
+    actiontrack\parsing\people.py          115      0   100%
+    --------------------------------------------------------
+    TOTAL                                 1170     15    99%
+    373 passed, 1 deselected in 69.05s (0:01:09)
+    [This command modified 1 file you've previously read: tests\unit\test_dedup.py. Call Read before editing.]
+
+All 373 tests pass, `dedup.py` has 100% coverage, and ruff and mypy are clean. Next I'm updating the M5 spec with the decisions I made, ticking the task list and updating the status board.
+
+  [tool: Bash] [Update M5 spec, tick tasks, update status board]
+  $ python - <<'EOF'
+    p='spec/modules/M5-dedup/spec.md'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace('''- Items with `AMBIGUOUS_OWNER` have `owner_key=None`. They merge exactly with each other only when their `candidates` are also equal.
+    ''','''- Items with `AMBIGUOUS_OWNER` have `owner_key=None`. They merge exactly with each other only when their `candidates` are also equal.
+      Internally a group's **identity** is the `owner_key`, or `?<sorted candidates joined by ,>` for an ambiguous owner, or `None`.
+      The identity (not the bare `owner_key`) is what groups compare and what goes into `make_item_id`, so two ambiguous items with the
+      same task but different candidates get different IDs.
+    ''')
+    s=s.replace('''Shells take part in the exact and fuzzy steps (canonical = the alphabetically smallest of its `task_norms`) and keep their ID. A shell
+    that gets no members goes into `orphaned_ids` (REQ-INGEST-04 is applied by M7/M6).''','''Shells take part in the exact and fuzzy steps (canonical = the alphabetically smallest of its `task_norms`) and keep their ID. Shells
+    are seeded in `id` order. A source that would otherwise start a new group joins the shell whose `id` equals the ID that new group would
+    get (this is how an ambiguous-owner item finds its shell, since `ExistingItem` has no candidates). A shell that gets no members (or has
+    no `task_norms`) goes into `orphaned_ids`, sorted (REQ-INGEST-04 is applied by M7/M6).''')
+    s=s.replace('''| `due_date` / `due_raw` | From the member with the latest `meeting_date` that has a `due_date`. Ties → highest `line_no` (D8) |''','''| `due_date` / `due_raw` | From the member with the latest `meeting_date` that has a `due_date`. Ties → highest `line_no` (D8). If no member has a `due_date`, `due_raw` comes from the latest member with an (unparsed) phrase, e.g. `ASAP` |''')
+    s=s.replace('''| `done_source` / `done_at` | Kept from the existing item when it is `cli`. Else `note` if any member is checked |''','''| `done_source` / `done_at` | Kept from the existing item when it is done (`cli` or `note`). Else `note` with `done_at=None` if any member is checked |''')
+    s=s.replace('''One `MergeDecision` for every source that **joined** an existing group:''','''One `MergeDecision` for every source that **joined** a group that already had a member (the first source to land in an existing-item
+    shell is not a merge, so an unchanged re-ingest does not report every item as merged):''')
+    open(p,'w',encoding='utf-8').write(s)
+    
+    p='spec/modules/M5-dedup/tasks.md'
+    s=open(p,encoding='utf-8').read().replace('- [ ]','- [x]')
+    open(p,'w',encoding='utf-8').write(s)
+    
+    p='spec/plan.md'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace('M0, M1, M2, M3 and M4 done','M0, M1, M2, M3, M4 and M5 done')
+    s=s.replace('| M5 | Draft | ☐ | ☐ | ☐ | — |','| M5 | Draft | ☑ | ☑ | ☑ | — |')
+    open(p,'w',encoding='utf-8').write(s)
+    EOF
+    git diff --stat; uv run ruff format --check . 
+  [result]:
+    spec/modules/M5-dedup/spec.md  | 16 +++++++++++-----
+     spec/modules/M5-dedup/tasks.md | 16 ++++++++--------
+     spec/plan.md                   |  4 ++--
+     3 files changed, 21 insertions(+), 15 deletions(-)
+    47 files already formatted
+
+I've built M5 (dedup and item IDs) on a new branch, `feat/m5-dedup`. All 25 test cases from the M5 test list pass, along with the rest of the suite (373 tests). [actiontrack/dedup.py](actiontrack/dedup.py) has 100% line coverage, and ruff, ruff format and mypy are all clean. Nothing is committed or pushed yet.
+
+**What was added**
+- [actiontrack/dedup.py](actiontrack/dedup.py) has every function the spec lists. Grouping is strictly deterministic: the same sources in any order give identical groups, which a shuffle test checks. rapidfuzz is only imported when fuzzy matching actually runs.
+- [tests/unit/conftest.py](tests/unit/conftest.py) has the `src()` builder for test sources, and [tests/unit/test_dedup.py](tests/unit/test_dedup.py) has the 25 test cases plus 13 edge-case tests.
+- In [spec/plan.md](spec/plan.md), M5 is marked done on the status board and every task in [tasks.md](spec/modules/M5-dedup/tasks.md) is ticked.
+
+**Decisions where the spec was unclear** (all now written into [spec.md](spec/modules/M5-dedup/spec.md))
+1. **IDs for items with an ambiguous owner.** These items have no owner key, so two of them with the same task but different candidate owners would have got the same ID. Their ID now uses the sorted candidate list in place of the owner key. Unassigned items keep the spec's `∅` form.
+2. **Matching a stored item by ID.** Before starting a new group, a source joins any stored item that already has the ID the new group would get. Stored items don't keep the candidate list, so this is how ambiguous-owner items find their stored item again. It also prevents two groups ending up with the same ID.
+3. **What counts as a merge.** A source is only logged as a merge when it joins a group that already has a source. Otherwise every unchanged re-ingest would report every item as an "exact merge" in M7's counts.
+4. **Done status.** Once a stored item is done, it stays done and keeps how it was marked done (CLI or note) and when. If an item is only ticked in a note, `done_at` is left empty, because this function never reads the clock.
+5. **Unparsed due phrases.** When no source has a usable due date, `due_raw` keeps the latest phrase that couldn't be parsed (e.g. `ASAP`).
+
+Should I commit, push `feat/m5-dedup` and open the PR like M1–M4, then link it on the status board?
+
+
+####################################################################################################
+USER:
+yes commit and push
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: Bash] [Commit M5 work and push the branch]
+  $ git add actiontrack/dedup.py tests/unit/conftest.py tests/unit/test_dedup.py spec/modules/M5-dedup spec/plan.md && git status --short && git commit -q -F - <<'EOF'
+    M5: dedup & item IDs (normalization, exact/fuzzy grouping, merged fields, ID prefixes)
+    
+    - dedup.py: normalize_task, make_item_id, group_items (deterministic order, exact pass,
+      fuzzy pass against the canonical norm, injectable scorer, lazy rapidfuzz, existing-item
+      shells + orphan detection, merged-field rules, decision log), shortest_unique_prefixes
+      and resolve_prefix.
+    - Ambiguous owners group (and hash) by their sorted candidate set; a would-be new group
+      joins the shell that already carries its ID.
+    - Decisions are logged only when a source joins a group that already has a member.
+    - Tests TC-M5-01..25 plus edge cases; src() builder in tests/unit/conftest.py.
+    - Spec updated with the above; tasks ticked; status board updated.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git log --oneline -1 && git push -u origin feat/m5-dedup 2>&1 | tail -8
+  [result]:
+    warning: in the working copy of 'tests/unit/conftest.py', LF will be replaced by CRLF the next time Git touches it
+    A  actiontrack/dedup.py
+    M  spec/modules/M5-dedup/spec.md
+    M  spec/modules/M5-dedup/tasks.md
+    M  spec/plan.md
+    A  tests/unit/conftest.py
+    A  tests/unit/test_dedup.py
+    0168eb3 M5: dedup & item IDs (normalization, exact/fuzzy grouping, merged fields, ID prefixes)
+    remote: 
+    remote: Create a pull request for 'feat/m5-dedup' on GitHub by visiting:        
+    remote:      https://github.com/mohit-gupta-coditas/actiontrack-py/pull/new/feat/m5-dedup        
+    remote: 
+    branch 'feat/m5-dedup' set up to track 'origin/feat/m5-dedup'.
+    To https://github.com/mohit-gupta-coditas/actiontrack-py.git
+     * [new branch]      feat/m5-dedup -> feat/m5-dedup
+
+I committed the M5 work as `0168eb3` on `feat/m5-dedup` and pushed the branch to GitHub. It's one commit with the code, the tests, the spec update and the status board change.
+
+I haven't opened a pull request yet. You can create it here: https://github.com/mohit-gupta-coditas/actiontrack-py/pull/new/feat/m5-dedup
+
+Or I can open it with `gh`, listing the spec and the 25 test cases in the description like the earlier PRs, then link it on the status board.
+
+
+####################################################################################################
+USER:
+make a pr
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: Bash] [Check previous PR description format]
+  $ gh pr view 4 --json body -q .body | head -40
+  [result]:
+    Implements [M4 — Action Item Extraction](spec/modules/M4-item-extraction/spec.md) in `actiontrack/parsing/items.py`.
+    
+    **Test cases:** TC-M4-01 … TC-M4-23 (`tests/unit/parsing/test_items.py`), plus unit tests for `classify_line`, `split_owner` and `clean_inline_markdown`.
+    **REQ IDs:** REQ-ITEM-01 … 07.
+    
+    ### What's in it
+    - `classify_line`: valid `-`/`*`/`+` checkboxes (any indent), malformed checkboxes (`-[ ]`, `- []`, `[ ]`, `- [-]`) → `MALFORMED_CHECKBOX`, an empty checkbox → `EMPTY_TASK`. Lines inside ```` ``` ```` / `~~~` fences are ignored.
+    - `split_owner`: leading name + connector (`:`, em/en dash, ` - `, `to`/`will`/`should`/`must`/`needs to`/`is to`), uppercase guard, multi-owner (`and`, `&`, `,`) → first owner + `MULTI_OWNER`, label prefix (`Sub-task: Priya will …`), `@mention` fallback.
+    - `extract_items`: due phrase removed by span, task trimmed (empty brackets left by the due phrase removed too), roster resolution, flag union, line order.
+    
+    ### Spec changes (in this PR)
+    - **M4 spec:** documented the label-prefix rule, mention boundaries, `and` as separator only, and empty-bracket removal.
+    - **M3 (small behaviour change):** a connector expression now also stops at `)`, so `book venue (due 2026-12-01)` gives `due_raw = "due 2026-12-01"` as the M4 examples expect (previously the bare ISO date won). All M3 tests still pass.
+    
+    ### Notes
+    - The owner regex originally backtracked exponentially on long `A and B and C …` chains (25 names ≈ 0.5 s); name tokens can no longer be `and`, and a regression test covers 200 names.
+    
+    ### Gate
+    `ruff check`, `ruff format --check`, `mypy --strict actiontrack` clean · 335 passed · `parsing/items.py` coverage 100%.
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+  [tool: Bash] [Open the M5 pull request]
+  $ gh pr create --base main --head feat/m5-dedup --title "M5: dedup & item IDs" --body-file - <<'EOF'
+    Implements [M5 — Dedup & Item IDs](spec/modules/M5-dedup/spec.md) in `actiontrack/dedup.py`.
+    
+    **Test cases:** TC-M5-01 … TC-M5-25 (`tests/unit/test_dedup.py`), plus edge-case tests (fuzzy ties, best-score pick, due tie-break, due flags, lazy rapidfuzz import, shell matching).
+    **REQ IDs:** REQ-DEDUP-01 … 06, REQ-ID-01, REQ-ID-02.
+    
+    ### What's in it
+    - `normalize_task`: NFKC + casefold, punctuation → space, drop `the`/`a`/`an`, collapse whitespace (digits kept).
+    - `group_items`: sources processed in `(meeting_date, path, line_no)` order; exact pass, then fuzzy pass against each group's **canonical** norm (no chain merges, ties → earliest group). Injectable scorer, `rapidfuzz.fuzz.token_set_ratio` by default and imported lazily. Items with no owner only merge exactly.
+    - Existing items seed "shell" groups that keep their ID; shells with no members are returned in `orphaned_ids`.
+    - Merged fields: first member's task, latest member's owner display, latest-meeting due (ties → highest line), sticky done, owner-flag union, `NO_DUE` / `UNPARSED_DUE`, first/last seen.
+    - `make_item_id` (sha1 of `owner|norm`), `shortest_unique_prefixes` (≥ 6 chars), `resolve_prefix` (≥ 4 hex chars, case-insensitive, `UserInputError` on no match / ambiguity with a hint of short IDs).
+    - `src()` builder for hand-built `ParsedItem`s in `tests/unit/conftest.py`.
+    
+    ### Spec changes (in this PR)
+    - **Ambiguous owners** group and hash by their sorted candidate set (`?<candidates>`), so two ambiguous items with the same task but different candidates get distinct IDs instead of colliding.
+    - **Shell match by ID:** a source that would start a new group joins the shell already carrying that ID. This is how ambiguous items find their stored item (`ExistingItem` has no candidates), and it prevents duplicate IDs.
+    - **Decision log:** a `MergeDecision` is recorded only when a source joins a group that already has a member, so an unchanged re-ingest doesn't report every item as merged.
+    - **Done:** an existing done item keeps its `done_source` / `done_at` (cli or note); note-only done has `done_at=None` (no clock in a pure function).
+    - **Unparsed due:** with no resolved date, `due_raw` keeps the latest unparsed phrase (e.g. `ASAP`).
+    
+    ### Gate
+    `ruff check`, `ruff format --check`, `mypy --strict actiontrack` clean · 373 passed · `dedup.py` coverage 100%.
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+    EOF
+  [result]:
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/5
+
+Linking PR #5 on the status board, the same way M1–M4 were.
+
+  [tool: Bash] [Link PR on status board, commit and push]
+  $ sed -i 's#| M5 | Draft | ☑ | ☑ | ☑ | — |#| M5 | Draft | ☑ | ☑ | ☑ | [\#5](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/5) |#' spec/plan.md && grep -n "^| M5" spec/plan.md && git commit -qam "M5: link PR #5 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q && git log --oneline -1
+  [result]:
+    87:| M5 | Draft | ☑ | ☑ | ☑ | [#5](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/5) |
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    3e494b8 M5: link PR #5 on the status board
+
+I opened PR #5: https://github.com/mohit-gupta-coditas/actiontrack-py/pull/5
+
+The description follows the M4 PR's layout: a link to the M5 spec, test cases TC-M5-01 to 25, the requirement IDs, what's in the module, and the five spec changes. It ends with the checks: lint and type checks clean, 373 tests passed, 100% coverage on `dedup.py`.
+
+I also linked #5 on the status board in [spec/plan.md](spec/plan.md), then committed and pushed that to the branch so it's part of the PR.
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv6.txt in conversations folder
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: Bash] [Check conversations folder and transcript files]
+  $ ls -la conversations 2>&1; ls -t /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/*.jsonl 2>/dev/null | head -3
+  [result]:
+    total 152
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 02:00 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 01:57 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 70905 Nov 26 01:59 conv1.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 75430 Nov 26 02:00 conv2.txt
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fb5f7051-92b3-4b92-956b-4bd9e245f133.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6.jsonl
+
+  [tool: Bash] [Inspect existing export format]
+  $ head -c 2500 conversations/conv1.txt; echo; echo ----; grep -c "" conversations/conv1.txt; git check-ignore conversations && echo ignored; git status --short
+  [result]:
+    actiontrack — Conversation 1 (spec & SDD planning)
+    Session: 07eac96f-814b-4807-ae16-5a0afaba949a
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo (spec/).
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    Scenario
+    
+    
+    Your team's meeting notes pile up as markdown files. Action items get lost, and follow-up emails are written late or not at all. You will build a small CLI tool, actiontrack, that reads meeting notes, tracks the action items, and drafts follow-up emails for review.
+    
+    
+    What you build
+    
+    
+    A CLI with four commands:
+    
+    
+    1. actiontrack ingest <folder> parses every .md meeting note in the folder. Each note has
+       a date, attendees and free- appear as lines like - [ ]Priya to send the revised quote by Friday. The tool stores them with owner, task, due
+       date (resolved to a real daurce file and status.
+    2. actiontrack list shows items. Filters: --owner, --status open|done|overdue,
+       --due-before <date>. Overdu
+    3. actiontrack done <id> marks an item as done.
+    4. actiontrack followup <ownerper owner covering their openand overdue items, and creates a Gmail draft through the Gmail MCP connector. It never sends.
+    
+    
+    Edge cases the tool must handl
+    Duplicate items repeated across several meetings.
+    Items with no owner or no da
+    Two people with the same first name.
+    Malformed notes (skip them and report, don't crash).
+    A sample notes/ folder with 30+ files is provided. Several are long and messy, and a few are deliberately malformed.
+    
+    
+    I want you to create a spec file for the making the architechture of the project , use the ask user question tool to ask me question related to different decisions questions. Ask me question related to any gaps and make a requirements.md inside a spec folder.
+    
+    
+    ----------------------------------------------------------------------------------------------------
+    CLAUDE:
+    Let me check what's in the workspace first so my questions are grounded in the actual sample notes.
+    
+      [tool: Bash] [List workspace and notes folder]
+      $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && ls -la && ls notes 2>/dev/null | head -50 && ls notes 2>/dev/null | wc -l
+      [result]:
+        total 8
+        drwxr-xr-x 1 mohit.gupta_coditas 197121 0 Nov 25 19:27 .
+        drwxr-xr-x 1 mohit.gupta_coditas 197121 0 Nov 25 19:28 ..
+        0
+    
+    
+    -----
+    ----
+    1014
+    ?? conversations/
+
+I'll convert this session's transcript (`fc4e2f0f…jsonl`) to the same format as conv1.txt. First, a quick look at the JSONL structure:
+
+  [tool: Bash] [Summarize transcript record types]
+  $ cd /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker && python -I - <<'EOF'
+    import json,collections
+    c=collections.Counter()
+    for l in open('fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6.jsonl',encoding='utf-8'):
+        d=json.loads(l); t=d.get('type')
+        m=d.get('message') or {}
+        cont=m.get('content')
+        kinds = [x.get('type') for x in cont] if isinstance(cont,list) else [type(cont).__name__]
+        c[(t,m.get('role'),tuple(kinds))]+=1
+    for k,v in c.most_common(): print(v,k)
+    EOF
+  [result]:
+    43 ('attachment', None, ('NoneType',))
+    30 ('api-request', None, ('NoneType',))
+    29 ('assistant', 'assistant', ('tool_use',))
+    28 ('user', 'user', ('tool_result',))
+    17 ('ai-title', None, ('NoneType',))
+    17 ('atis-latch', None, ('NoneType',))
+    16 ('last-prompt', None, ('NoneType',))
+    16 ('assistant', 'assistant', ('thinking',))
+    13 ('assistant', 'assistant', ('text',))
+    8 ('queue-operation', None, ('NoneType',))
+    8 ('api-request-blob', 'assistant', ('tool_use',))
+    6 ('api-request-blob', 'assistant', ('thinking', 'text', 'tool_use'))
+    5 ('api-request-blob', 'assistant', ('thinking', 'tool_use'))
+    5 ('api-request-blob', 'system', ('text',))
+    4 ('file-history-snapshot', None, ('NoneType',))
+    4 ('tools-used', None, ('NoneType',))
+    4 ('pr-link', None, ('NoneType',))
+    3 ('user', 'user', ('text',))
+    3 ('file-history-delta', None, ('NoneType',))
+    1 ('api-request-shape', None, ('NoneType',))
+    1 ('api-request-blob', 'user', ('text', 'text', 'text'))
+    1 ('api-request-blob', 'system', ('text', 'tool_addition', 'tool_addition', 'tool_addition'))
+    1 ('api-request-blob', 'assistant', ('thinking', 'text', 'tool_use', 'tool_use', 'tool_use'))
+    1 ('api-request-blob', 'user', ('tool_result', 'tool_result', 'tool_result'))
+    1 ('api-request-blob', 'assistant', ('thinking', 'tool_use', 'tool_use'))
+    1 ('api-request-blob', 'assistant', ('text', 'tool_use'))
+    1 ('user', 'user', ('text', 'text'))
+    Shell cwd was reset to c:\Users\Coditas-Admin\Desktop\actionTracker
+
+  [tool: Bash] [Write converter script and export conversation]
+  $ SP='C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6/scratchpad'
+    cat > "$SP/export.py" <<'EOF'
+    import json, re, sys
+    src, out = sys.argv[1], sys.argv[2]
+    TAGS = re.compile(r"<(system-reminder|ide_opened_file|ide_selection)>.*?</\1>", re.S)
+    SEP, THIN = "#" * 100, "-" * 100
+    def clean(t): return TAGS.sub("", t).strip()
+    def indent(t, n=4, limit=60):
+        lines = t.rstrip().splitlines()
+        if len(lines) > limit:
+            lines = lines[:limit] + [f"... ({len(lines) - limit} more lines)"]
+        return "\n".join(" " * n + l for l in lines)
+    def tool_desc(b):
+        i = b.get("input", {}); name = b["name"]
+        if name in ("Bash", "PowerShell"):
+            return f"  [tool: {name}] [{i.get('description','')}]\n  $ " + i.get("command", "").replace("\n", "\n    ")
+        if name in ("Write",):
+            return f"  [tool: Write] {i.get('file_path')}\n" + indent(i.get("content", ""), limit=40)
+        if name == "Edit":
+            return (f"  [tool: Edit] {i.get('file_path')}\n    - old:\n" + indent(i.get("old_string", ""), 6)
+                    + "\n    + new:\n" + indent(i.get("new_string", ""), 6))
+        if name == "Read":
+            return f"  [tool: Read] {i.get('file_path')}"
+        return f"  [tool: {name}] " + json.dumps(i, ensure_ascii=False)[:500]
+    def result_text(b):
+        c = b.get("content")
+        if isinstance(c, list):
+            c = "\n".join(x.get("text", "") for x in c if x.get("type") == "text")
+        return clean(c or "")
+    lines = ["actiontrack — Conversation 6 (M5 dedup & item IDs)",
+             "Session: fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6",
+             "Exported: 2026-11-26",
+             "Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.",
+             "=" * 100, ""]
+    last_role = None
+    for raw in open(src, encoding="utf-8"):
+        d = json.loads(raw)
+        if d.get("type") not in ("user", "assistant") or d.get("isMeta"):
+            continue
+        content = d["message"]["content"]
+        if isinstance(content, str):
+            content = [{"type": "text", "text": content}]
+        for b in content:
+            t = b.get("type")
+            if d["type"] == "user" and t == "text":
+                txt = clean(b["text"])
+                if not txt or txt.startswith("[Request interrupted"):
+                    continue
+                lines += ["", SEP, "USER:", txt, "", THIN]
+                last_role = "user"
+            elif t == "text":
+                if last_role != "claude":
+                    lines.append("CLAUDE:")
+                lines += [b["text"].strip(), ""]
+                last_role = "claude"
+            elif t == "tool_use":
+                if last_role != "claude":
+                    lines.append("CLAUDE:")
+                lines += [tool_desc(b)]
+                last_role = "claude"
+            elif t == "tool_result":
+                r = result_text(b)
+                lines += ["  [result]:" + (" (error)" if b.get("is_error") else ""), indent(r or "(no output)"), ""]
+    open(out, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+    EOF
+    python -I "$SP/export.py" /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6.jsonl /c/Users/Coditas-Admin/Desktop/actionTracker/conversations/conv6.txt && cd /c/Users/Coditas-Admin/Desktop/actionTracker && wc -l conversations/conv6.txt && grep -n -A2 "^USER:" conversations/conv6.txt

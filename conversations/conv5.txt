@@ -1,0 +1,1280 @@
+actiontrack — Conversation 5 (M4 item extraction: implement, PR, merge)
+Session: 4c26c3e8-6b95-48b9-ad03-18e3442b2cb6
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on M4
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll start by looking at the repo to find what M4 covers.
+
+  [tool: Bash] [List tracked files and read CLAUDE.md]
+  $ git ls-files | head -100 && cat CLAUDE.md 2>/dev/null | head -100
+  [result]:
+    .gitignore
+    .python-version
+    README.md
+    actiontrack/__init__.py
+    actiontrack/__main__.py
+    actiontrack/cli.py
+    actiontrack/clock.py
+    actiontrack/config.py
+    actiontrack/console.py
+    actiontrack/errors.py
+    actiontrack/models.py
+    actiontrack/parsing/__init__.py
+    actiontrack/parsing/dates.py
+    actiontrack/parsing/note_loader.py
+    actiontrack/parsing/people.py
+    pyproject.toml
+    spec/modules/M0-foundation/spec.md
+    spec/modules/M0-foundation/tasks.md
+    spec/modules/M0-foundation/tests.md
+    spec/modules/M1-note-loader/spec.md
+    spec/modules/M1-note-loader/tasks.md
+    spec/modules/M1-note-loader/tests.md
+    spec/modules/M10-gmail-mcp/spec.md
+    spec/modules/M10-gmail-mcp/tasks.md
+    spec/modules/M10-gmail-mcp/tests.md
+    spec/modules/M11-followup/spec.md
+    spec/modules/M11-followup/tasks.md
+    spec/modules/M11-followup/tests.md
+    spec/modules/M12-e2e-release/spec.md
+    spec/modules/M12-e2e-release/tasks.md
+    spec/modules/M12-e2e-release/tests.md
+    spec/modules/M2-people/spec.md
+    spec/modules/M2-people/tasks.md
+    spec/modules/M2-people/tests.md
+    spec/modules/M3-dates/spec.md
+    spec/modules/M3-dates/tasks.md
+    spec/modules/M3-dates/tests.md
+    spec/modules/M4-item-extraction/spec.md
+    spec/modules/M4-item-extraction/tasks.md
+    spec/modules/M4-item-extraction/tests.md
+    ... [46 more lines]
+
+  [tool: Bash] [Read M4 spec, tasks, tests and plan]
+  $ cat spec/modules/M4-item-extraction/*.md && cat spec/plan.md
+  [result]:
+    # M4 — Action Item Extraction
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M1 (`NoteMeta`), M2 (`Roster`), M3 (`extract_due`) |
+    | **Files** | `actiontrack/parsing/items.py` |
+    | **REQ IDs** | REQ-ITEM-01 … 07 |
+    
+    ## 1. Purpose
+    Walk the body lines of a loaded note, detect action items, and split each one into **owner / task / due**. The result is a list of
+    `ParsedItem` plus `LineWarning`s for malformed lines.
+    
+    ## 2. Interface
+    
+    ```python
+    def extract_items(note: NoteMeta, roster: Roster, *, date_order: Literal["DMY", "MDY"] = "DMY"
+                      ) -> tuple[list[ParsedItem], list[LineWarning]]
+    
+    # internal but tested directly
+    def classify_line(line: str) -> CheckboxLine | MalformedCheckbox | None
+    def split_owner(body: str) -> OwnerSplit       # (owner_raw | None, rest_without_owner_and_connector, multi_owner: bool)
+    def clean_inline_markdown(s: str) -> str
+    ```
+    
+    ## 3. Line classification (REQ-ITEM-01 … 03)
+    
+    1. **Code fences**: a line starting with ```` ``` ```` or `~~~` toggles "in fence". Lines inside a fence are ignored.
+    2. **Valid checkbox**: `^\s*[-*+]\s+\[( |x|X)\]\s+(?P<body>\S.*)$` → `CheckboxLine(checked = marker in "xX", body)`.
+    3. **Malformed checkbox** → `LineWarning(MALFORMED_CHECKBOX)`, the line is skipped:
+       - `^\s*[-*+]\[[ xX]?\]` (no space after the bullet), e.g. `-[ ] Rahul …`
+       - `^\s*[-*+]\s+\[\]` (empty brackets)
+       - `^\s*\[[ xX]\]\s+\S` (no bullet)
+       - `^\s*[-*+]\s+\[[^ xX\]]\]` (an unknown marker such as `[-]`, `[~]`, `[o]`)
+       - `^\s*[-*+]\s+\[[ xX]\]\s*$` (a checkbox with no text) → code `EMPTY_TASK`
+    4. Anything else → None (ordinary text).
+    
+    ## 4. Splitting the body (REQ-ITEM-04 … 07)
+    
+    Apply to `clean_inline_markdown(body)`. This strips `**`, `__`, `*`, `_`, and backticks used as emphasis, turns `[text](url)` into `text`,
+    ... [43 more lines]
+
+  [tool: Bash] [Read models, people, dates modules and test setup]
+  $ cat actiontrack/models.py actiontrack/parsing/people.py actiontrack/parsing/dates.py actiontrack/parsing/__init__.py && cat tests/conftest.py && ls tests/unit/parsing && head -80 tests/unit/parsing/test_people.py
+  [result]:
+    """Shared data contracts passed between modules (M0 spec §8).
+    
+    Later modules consume these types. Fields may only be added by changing the M0 spec first.
+    """
+    
+    from __future__ import annotations
+    
+    import dataclasses
+    from collections.abc import Mapping
+    from dataclasses import dataclass
+    from datetime import date, datetime
+    from enum import Enum, StrEnum
+    from pathlib import Path
+    from typing import Any, Literal
+    
+    JSON_SCHEMA_VERSION = 1
+    
+    
+    class Flag(StrEnum):
+        UNASSIGNED = "unassigned"
+        AMBIGUOUS_OWNER = "ambiguous_owner"
+        OWNER_NOT_ATTENDEE = "owner_not_attendee"
+        MULTI_OWNER = "multi_owner"
+        NO_DUE = "no_due"
+        UNPARSED_DUE = "unparsed_due"
+        ORPHANED = "orphaned"
+    
+    
+    class SkipReason(StrEnum):
+        EMPTY_FILE = "empty_file"
+        BINARY_FILE = "binary_file"
+        INVALID_ENCODING = "invalid_encoding"
+        INVALID_FRONTMATTER = "invalid_frontmatter"
+        MISSING_DATE = "missing_date"
+        UNPARSEABLE_DATE = "unparseable_date"
+        MISSING_ATTENDEES = "missing_attendees"
+        READ_ERROR = "read_error"
+        INTERNAL_ERROR = "internal_error"
+    
+    
+    ... [127 more lines]
+
+  [tool: Bash] [Check M3 spec on parentheses, pyproject, recent commit layout]
+  $ grep -n "(" spec/modules/M3-dates/spec.md | head -60; cat pyproject.toml; git log --stat -3 --format='%H %s%n%b' | head -60
+  [result]:
+    17:def extract_due(text: str, *, anchor: date, date_order: Literal["DMY", "MDY"] = "DMY") -> DueResolution
+    18:    # DueResolution.span → the char range to remove from the text when building the task (M4)
+    19:def resolve_expr(expr: str, *, anchor: date, date_order: Literal["DMY", "MDY"] = "DMY") -> date | None
+    20:def parse_user_date(text: str, *, today: date, date_order: Literal["DMY", "MDY"] = "DMY") -> date
+    24:## 3. Phrase detection (REQ-DATE-01)
+    26:Searched case-insensitively. When several phrases match, the **last** one in the text wins (due phrases are usually at the end).
+    28:| Kind | Pattern (simplified) | Example |
+    30:| Connector + expression | `\b(by|before|due(?: on| by)?|until|no later than|deadline:?)\s+<expr>` | `by Friday`, `due 12 Dec` |
+    32:| Standalone keyword | `\b(EOD|EOW|EOM|end of (?:the )?(day|week|month)|end of next week|tomorrow|today|next week|ASAP)\b` | `send deck EOW` |
+    35:`<expr>` runs to the end of the text, or to the first `,` `;` `(` or ` - `, with trailing `.`/`!` removed.
+    36:`due_raw` = the matched phrase as written (e.g. `by Friday`).
+    43:## 4. Resolution rules (REQ-DATE-02 … 06)
+    45:Relative keywords are handled by **our own rules** (deterministic). Only absolute/calendar expressions go to `dateparser`.
+    52:| `<weekday>` / `this <weekday>` | First occurrence **strictly after** A (A is Friday and the text says Friday → A + 7) (REQ-DATE-03) |
+    53:| `next <weekday>` | That weekday in the calendar week after A's week (Mon-start) (gap G6) |
+    54:| `EOW`, `end of (the) week` | Friday of A's week. If A is Fri/Sat/Sun → the following Friday |
+    57:| `EOM`, `end of (the) month` | Last day of A's month |
+    58:| ISO `YYYY-MM-DD` | That date (no anchoring) |
+    59:| `12 Dec`, `Dec 12`, `12th December` (no year) | The first occurrence **on or after A**, so a December meeting saying `5 Jan` gives next year |
+    60:| `12 Dec 2026`, `12/12/2026`, `03/04/2026` | Absolute. Numeric dates follow `date_order` (REQ-DATE-06) |
+    61:| `3/4` (numeric, no year) | Day/month per `date_order`, first occurrence on or after A |
+    62:| `ASAP`, or anything else unresolvable | None (gap G9) |
+    64:`dateparser` settings: `RELATIVE_BASE=datetime.combine(A, time())`, `PREFER_DATES_FROM="future"`, `DATE_ORDER=date_order`,
+    67:- Only an expression that has a numeric date (`3/4`, `03/04/2027`) or a month name plus a digit (`12 Dec`) goes to
+    68:  `dateparser`. Anything else (`the blue moon`, `12`, `the team`) is unresolvable without calling it.
+    69:- Without a year, `dateparser`'s `future` skips the anchor day itself (`18 Nov` said on 18 Nov gives next year). So for a
+    71:  (`29 Feb` → the next leap year).
+    72:- Weekday names accept the usual abbreviations (`Mon`, `Tues`, `Thurs`, ...).
+    74:## 5. Flags (REQ-DATE-05)
+    76:- Phrase found but unresolvable → `due_date=None`, `due_raw=<phrase>`, flags `{UNPARSED_DUE}`, span set (the phrase is still
+    82:today. Unresolvable → `UserInputError('could not understand date "<text>"', hint="use YYYY-MM-DD")`.
+    85:Removing owner/connector text (M4).
+    88:G6 (`next <weekday>`), G9 (`ASAP`). See plan §5.
+    [project]
+    name = "actiontrack"
+    dynamic = ["version"]
+    description = "Extract, track and follow up on action items from meeting notes."
+    readme = "README.md"
+    requires-python = ">=3.11"
+    dependencies = [
+    ... [41 more lines]
+
+  [tool: Bash] [Inspect M3 commit and test style]
+  $ git show --stat 37aa031 | head -40; head -60 tests/unit/parsing/test_dates.py; cat spec/modules/M3-dates/tasks.md
+  [result]:
+    commit 37aa031f629dd7f6bd00887f586406208abce9c7
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Wed Nov 25 21:12:37 2026 +0530
+    
+        M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+     actiontrack/parsing/dates.py     | 173 ++++++++++++++++++++++++++++++++
+     spec/modules/M3-dates/spec.md    |  12 +++
+     spec/modules/M3-dates/tasks.md   |  14 +--
+     spec/plan.md                     |   4 +-
+     tests/unit/parsing/test_dates.py | 207 +++++++++++++++++++++++++++++++++++++++
+     5 files changed, 401 insertions(+), 9 deletions(-)
+    from __future__ import annotations
+    
+    from datetime import date
+    from typing import Literal
+    
+    import pytest
+    
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import DueResolution, Flag
+    from actiontrack.parsing.dates import extract_due, parse_user_date, resolve_expr
+    
+    WED = date(2026, 11, 18)
+    FRI = date(2026, 11, 20)
+    SAT = date(2026, 11, 21)
+    NO_FLAGS: frozenset[Flag] = frozenset()
+    
+    
+    def due(text: str, anchor: date = WED, order: Literal["DMY", "MDY"] = "DMY") -> DueResolution:
+        return extract_due(text, anchor=anchor, date_order=order)
+    
+    
+    def assert_due(res: DueResolution, due_date: date | None, due_raw: str | None) -> None:
+        assert res.due_date == due_date
+        assert res.due_raw == due_raw
+        assert res.flags == NO_FLAGS
+    
+    ... [47 more lines]
+
+  [tool: Bash] [See how M3 updated its spec and plan]
+  $ git show 37aa031 -- spec/ | head -80
+  [result]:
+    commit 37aa031f629dd7f6bd00887f586406208abce9c7
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Wed Nov 25 21:12:37 2026 +0530
+    
+        M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+    diff --git a/spec/modules/M3-dates/spec.md b/spec/modules/M3-dates/spec.md
+    index 1f8d40c..93d62a9 100644
+    --- a/spec/modules/M3-dates/spec.md
+    +++ b/spec/modules/M3-dates/spec.md
+    @@ -35,6 +35,11 @@ Searched case-insensitively. When several phrases match, the **last** one in the
+     `<expr>` runs to the end of the text, or to the first `,` `;` `(` or ` - `, with trailing `.`/`!` removed.
+     `due_raw` = the matched phrase as written (e.g. `by Friday`).
+     
+    +Overlapping matches: a keyword, bare ISO date or `on` phrase that ends where a longer phrase ends is part of that phrase
+    +and is not a candidate itself. So `by tomorrow`, `by end of next week`, `due 2026-12-01` and `due on 3 Dec` are kept
+    +whole, while in `follow up on Monday's notes by Friday` the later `by Friday` wins. A connector expression runs to the
+    +end of the text, so `by Monday then ship tomorrow` is one phrase, and it is unresolvable.
+    +
+     ## 4. Resolution rules (REQ-DATE-02 … 06)
+     
+     Relative keywords are handled by **our own rules** (deterministic). Only absolute/calendar expressions go to `dateparser`.
+    @@ -59,6 +64,13 @@ In the table, A is the meeting date.
+     `dateparser` settings: `RELATIVE_BASE=datetime.combine(A, time())`, `PREFER_DATES_FROM="future"`, `DATE_ORDER=date_order`,
+     `STRICT_PARSING=False`, `RETURN_TIME_AS_PERIOD=False`. Lazily imported.
+     
+    +- Only an expression that has a numeric date (`3/4`, `03/04/2027`) or a month name plus a digit (`12 Dec`) goes to
+    +  `dateparser`. Anything else (`the blue moon`, `12`, `the team`) is unresolvable without calling it.
+    +- Without a year, `dateparser`'s `future` skips the anchor day itself (`18 Nov` said on 18 Nov gives next year). So for a
+    +  year-less date only the day and month are taken from it, and the year is the first one where the date is on or after A
+    +  (`29 Feb` → the next leap year).
+    +- Weekday names accept the usual abbreviations (`Mon`, `Tues`, `Thurs`, ...).
+    +
+     ## 5. Flags (REQ-DATE-05)
+     - No phrase found → `due_date=None`, `due_raw=None`, flags `{NO_DUE}`, span None.
+     - Phrase found but unresolvable → `due_date=None`, `due_raw=<phrase>`, flags `{UNPARSED_DUE}`, span set (the phrase is still
+    diff --git a/spec/modules/M3-dates/tasks.md b/spec/modules/M3-dates/tasks.md
+    index d5255f3..c0cb12d 100644
+    ... [24 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Read the M4 spec, tests and the M1–M3 code. Now I'm creating the branch and writing the tests and `parsing/items.py`.
+
+  [tool: Bash] [Create branch; look at loader and config]
+  $ git checkout -b feat/m4-item-extraction && sed -n 1,60p actiontrack/parsing/note_loader.py && grep -n "def \|class " actiontrack/config.py | head -30
+  [result]:
+    Switched to a new branch 'feat/m4-item-extraction'
+    """Load one markdown note into a `NoteMeta` or a `SkipRecord` (M1 spec).
+    
+    Never raises for content problems: every unusable note becomes a `SkipRecord` with a reason.
+    The file is only ever read (REQ-GEN-03).
+    """
+    
+    from __future__ import annotations
+    
+    import codecs
+    import hashlib
+    import re
+    from collections.abc import Iterable
+    from datetime import date, datetime
+    from pathlib import Path
+    from typing import Any, Literal
+    
+    import yaml
+    
+    from actiontrack.models import NoteMeta, SkipReason, SkipRecord
+    
+    DateOrder = Literal["DMY", "MDY"]
+    
+    _BINARY_SNIFF_BYTES = 8192
+    _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+    _DATE_LINE = re.compile(r"^\s*\**date\**\s*:\s*\**\s*(.+?)\s*$", re.IGNORECASE)
+    _ATTENDEES_LINE = re.compile(
+        r"^\s*\**(?:attendees|participants)\**\s*:\s*\**\s*(.*?)\s*$", re.IGNORECASE
+    )
+    _ATTENDEES_HEADING = re.compile(
+        r"^\s*#{1,6}\s+\**(?:attendees|participants)\**\s*:?\s*$", re.IGNORECASE
+    )
+    _HEADING = re.compile(r"^\s*#{1,6}\s")
+    _H1 = re.compile(r"^#\s+(.+?)\s*#*\s*$")
+    _BULLET = re.compile(r"^\s*[-*+]\s+(.*?)\s*$")
+    _CHECKBOX = re.compile(r"^\s*[-*+]\s+\[[ xX]\]")
+    _LIST_SEPARATORS = re.compile(r"[,;]")
+    _TITLE_SEPARATORS = " \t\u2014\u2013-:|"  # em dash, en dash, hyphen, colon, pipe
+    
+    _MONTH = (
+    ... [31 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the implementation.
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py  (6000 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Simplifying the warning closure, then the tests.
+
+  [tool: Bash] [Inline warnings; stop M3 due expressions at a closing bracket]
+  $ python - <<'EOF'
+    p='actiontrack/parsing/items.py'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace('''        if kind is None:
+                continue
+    
+            def warn(code: WarningCode, line_no: int = line_no, line: str = line) -> None:
+                warnings.append(LineWarning(note.path, line_no, code, line.strip()))
+    
+            if isinstance(kind, MalformedCheckbox):
+                warn(kind.code)
+                continue
+    ''','''        if kind is None:
+                continue
+            if isinstance(kind, MalformedCheckbox):
+                warnings.append(LineWarning(note.path, line_no, kind.code, line.strip()))
+                continue
+    ''')
+    s=s.replace('''        if not task:
+                warn(WarningCode.EMPTY_TASK)
+                continue''','''        if not task:
+                warnings.append(LineWarning(note.path, line_no, WarningCode.EMPTY_TASK, line.strip()))
+                continue''')
+    open(p,'w',encoding='utf-8').write(s)
+    EOF
+    sed -i 's/_EXPR = r"(?P<expr>(?:(?! - )\[^,;(\])+)"/_EXPR = r"(?P<expr>(?:(?! - )[^,;()])+)"/' actiontrack/parsing/dates.py; grep -n "_EXPR = " actiontrack/parsing/dates.py
+  [result]:
+    30:_EXPR = r"(?P<expr>(?:(?! - )[^,;()])+)"
+    46:_WEEKDAY_EXPR = re.compile(rf"^(?:(this|next)\s+)?({_WEEKDAY})$")
+    [This command modified 1 file you've previously read: actiontrack\parsing\items.py. Call Read before editing.]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Update the M3 comment too, then write the tests.
+
+  [tool: Bash] [Update M3 comment and spec for the bracket stop]
+  $ sed -i 's/# The expression after a connector: up to the first `,` `;` `(` or ` - `./# The expression after a connector: up to the first `,` `;` `(` `)` or ` - `./' actiontrack/parsing/dates.py && sed -i 's/`<expr>` runs to the end of the text, or to the first `,` `;` `(` or ` - `, with trailing/`<expr>` runs to the end of the text, or to the first `,` `;` `(` `)` or ` - `, with trailing/' spec/modules/M3-dates/spec.md && git diff --stat
+  [result]:
+    warning: in the working copy of 'actiontrack/parsing/dates.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M3-dates/spec.md', LF will be replaced by CRLF the next time Git touches it
+     actiontrack/parsing/dates.py  | 4 ++--
+     spec/modules/M3-dates/spec.md | 2 +-
+     2 files changed, 3 insertions(+), 3 deletions(-)
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py  (1307 chars — content in repo)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_items.py  (13058 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_items.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Let me tidy the fixture typing (no `type: ignore` noise) and check how M3 named parametrized TCs.
+
+  [tool: Bash] [See M3 parametrize naming]
+  $ grep -n "parametrize\|^def test" tests/unit/parsing/test_dates.py | head -20
+  [result]:
+    63:@pytest.mark.parametrize(
+    67:def test_extract_due_resolves(
+    79:def test_TC_M3_17_on_without_date_is_not_a_due_phrase() -> None:
+    84:def test_TC_M3_19_asap_is_unparsed() -> None:
+    92:def test_TC_M3_20_unresolvable_phrase_keeps_span() -> None:
+    102:def test_TC_M3_21_no_phrase() -> None:
+    106:def test_TC_M3_26_span_matches_phrase() -> None:
+    116:@pytest.mark.parametrize(
+    136:def test_detection_variants(text: str, expected: date | None, raw: str | None) -> None:
+    146:def test_on_followed_by_word_starting_with_month_letters_is_ignored() -> None:
+    154:@pytest.mark.parametrize(
+    184:def test_resolve_expr(expr: str, anchor: date, expected: date | None) -> None:
+    188:def test_resolve_expr_numeric_without_year_follows_date_order() -> None:
+    196:def test_TC_M3_24_user_weekday_is_on_or_after_today() -> None:
+    203:def test_TC_M3_25_user_date_nonsense_raises() -> None:
+
+  [tool: Bash] [View M3 parametrized test]
+  $ sed -n 60,78p tests/unit/parsing/test_dates.py
+  [result]:
+    ]
+    
+    
+    @pytest.mark.parametrize(
+        ("text", "anchor", "order", "expected", "raw"),
+        [pytest.param(*row[1:], id=row[0]) for row in RESOLVED],
+    )
+    def test_extract_due_resolves(
+        text: str, anchor: date, order: Literal["DMY", "MDY"], expected: date, raw: str
+    ) -> None:
+        res = due(text, anchor, order)
+        assert_due(res, expected, raw)
+        assert res.span is not None
+        assert text[res.span[0] : res.span[1]] == raw
+    
+    
+    # --- extract_due: flags ---------------------------------------------------------------------
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll switch to plain builder functions (simpler, fully typed) and rewrite the test file accordingly.
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py  (1077 chars — content in repo)
+  [tool: Bash] [Rewrite test helpers as plain functions]
+  $ python - <<'EOF'
+    import re
+    p='tests/unit/parsing/test_items.py'
+    s=open(p,encoding='utf-8').read()
+    head_start=s.index('PRIYA = ')
+    head_end=s.index('# --- checkbox detection')
+    new_head='''PRIYA = "priya.shah@coditas.com"
+    RAHUL = "rahul.mehta@coditas.com"
+    FRI = date(2026, 11, 20)
+    MON = date(2026, 11, 23)
+    NO_FLAGS: frozenset[Flag] = frozenset()
+    
+    
+    def extract(*lines: str, roster: tuple[str, ...] = ()) -> tuple[list[ParsedItem], list[LineWarning]]:
+        return extract_items(make_note(*lines), make_roster(*roster))
+    
+    
+    def one(line: str, roster: tuple[str, ...] = ()) -> ParsedItem:
+        """The single item extracted from one line, asserting there were no warnings."""
+        items, warnings = extract(line, roster=roster)
+        assert warnings == []
+        assert len(items) == 1
+        return items[0]
+    
+    
+    def warned(line: str) -> LineWarning:
+        """The single warning from one line, asserting no item was produced."""
+        items, warnings = extract(line)
+        assert items == []
+        assert len(warnings) == 1
+    ... [41 more lines]
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [result]:
+    49:def test_TC_M4_01_owner_task_and_due() -> None:
+    65:def test_TC_M4_02_checked_item() -> None:
+    72:def test_TC_M4_03_star_and_plus_bullets() -> None:
+    78:def test_TC_M4_04_indented_checkbox() -> None:
+    94:def test_malformed_checkbox(line: str) -> None:
+    104:def test_TC_M4_09_checkbox_without_text(line: str) -> None:
+    111:def test_TC_M4_10_checkboxes_in_code_fences_are_ignored(fence: str) -> None:
+    121:def test_TC_M4_23_brackets_mid_line_are_ordinary_text() -> None:
+    140:def test_classify_line(line: str, expected: object) -> None:
+    147:def test_TC_M4_11_full_name_and_colon() -> None:
+    154:def test_TC_M4_12_em_dash_connector() -> None:
+    160:def test_TC_M4_13_mention_anywhere() -> None:
+    169:def test_TC_M4_14_lowercase_start_has_no_owner() -> None:
+    177:def test_TC_M4_15_no_owner_no_due() -> None:
+    183:def test_TC_M4_16_two_owners_with_and() -> None:
+    192:def test_TC_M4_17_two_owners_with_comma_or_ampersand(line: str) -> None:
+    199:def test_TC_M4_20_ambiguous_first_name() -> None:
+    206:def test_label_before_owner_is_skipped() -> None:
+    232:def test_split_owner(body: str, expected: OwnerSplit) -> None:
+    239:def test_TC_M4_18_inline_markdown_is_cleaned() -> None:
+    247:def test_TC_M4_19_nothing_left_but_the_due_phrase() -> None:
+    253:def test_TC_M4_21_unparsed_due_is_kept_out_of_the_task() -> None:
+    261:def test_due_in_brackets_leaves_no_empty_brackets() -> None:
+    270:def test_task_keeps_casing_and_trims_punctuation() -> None:
+    274:def test_date_order_is_passed_to_due_parsing() -> None:
+    292:def test_clean_inline_markdown(text: str, expected: str) -> None:
+    299:def test_TC_M4_22_items_and_warnings_in_line_order() -> None:
+    [This command modified 1 file you've previously read: tests\unit\parsing\test_items.py. Call Read before editing.]
+
+  [tool: Bash] [Format and run parsing tests]
+  $ uv run ruff format tests/unit/parsing actiontrack/parsing >/dev/null; uv run pytest tests/unit/parsing -q 2>&1 | tail -40
+  [result]:
+    ........................................................................ [ 29%]
+    ........................................................................ [ 58%]
+    ........................................................................ [ 88%]
+    .............................                                            [100%]
+    245 passed, 1 deselected in 9.89s
+    [This command modified 1 file you've previously read: tests\unit\parsing\test_items.py. Call Read before editing.]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All green, including M3 after the bracket tweak. Running the full quality gate.
+
+  [tool: Bash] [Run ruff, mypy, full tests with coverage]
+  $ uv run pytest tests/unit/parsing/test_items.py -q 2>&1 | tail -2; uv run ruff check . && uv run ruff format --check . && uv run mypy --strict actiontrack && uv run pytest -q --cov=actiontrack.parsing --cov-report=term-missing 2>&1 | tail -15
+  [result] (error):
+    Exit code 1
+    .............................................................            [100%]
+    61 passed in 1.21s
+    RUF001 String contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+      --> actiontrack\parsing\items.py:40:20
+       |
+    38 | _LEADING_OWNER = re.compile(
+    39 |     rf"^(?P<owner>{_NAME}(?:(?:{_OWNER_SEPARATOR}){_NAME})*)\s*"
+    40 |     r"(?P<conn>:|—|–| - |\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+       |                    ^
+    41 | )
+    42 | _SPLIT_OWNERS = re.compile(_OWNER_SEPARATOR)
+       |
+    
+    RUF001 String contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+      --> actiontrack\parsing\items.py:46:23
+       |
+    44 | # Brackets left empty once the due phrase is taken out: `book venue (due 2026-12-01)`.
+    45 | _EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]")
+    46 | _TASK_EDGES = " \t,;:-–—"
+       |                       ^
+    
+    SIM102 Use a single `if` statement instead of nested `if` statements
+       --> actiontrack\parsing\items.py:141:13
+        |
+    139 |               rest = m.group("rest")
+    140 |               # A label such as `Sub-task: Priya will check numbers`: the owner is the inner one.
+    141 | /             if m.group("conn") == ":" and (inner := _LEADING_OWNER.match(rest)):
+    142 | |                 if inner.group("conn") != ":":
+        | |______________________________________________^
+    143 |                       nested = split_owner(rest)
+    144 |                       if nested.owner_raw is not None:
+        |
+    help: Combine `if` statements using `and`
+    
+    E501 Line too long (102 > 100)
+       --> actiontrack\parsing\items.py:154:101
+        |
+    153 | def _is_name(owner: str) -> bool:
+    154 |     """Every token starts with an uppercase letter or `@`, so `send the deck to Rahul` is no owner."""
+    ... [16 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Fixing the lint findings (en dash via `\u` escapes, as in note_loader.py, and flattening the nested `if`).
+
+  [tool: Bash] [Apply lint fixes]
+  $ python - <<'EOF'
+    p='actiontrack/parsing/items.py'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace('r"(?P<conn>:|—|–| - |','"(?P<conn>:|\\u2014|\\u2013| - |')
+    s=s.replace('''    r"(?P<conn>''','''    "(?P<conn>''')
+    s=s.replace('_TASK_EDGES = " \\t,;:-–—"','_TASK_EDGES = " \\t,;:-\\u2013\\u2014"')
+    s=s.replace('''            if m.group("conn") == ":" and (inner := _LEADING_OWNER.match(rest)):
+                    if inner.group("conn") != ":":
+                        nested = split_owner(rest)
+                        if nested.owner_raw is not None:
+                            return nested
+    ''','''            if m.group("conn") == ":":
+                    inner = _LEADING_OWNER.match(rest)
+                    if inner and inner.group("conn") != ":" and (nested := split_owner(rest)).owner_raw:
+                        return nested
+    ''')
+    s=s.replace('"""Every token starts with an uppercase letter or `@`, so `send the deck to Rahul` is no owner."""','"""Every token starts with an uppercase letter or `@`: `send the deck to Rahul` has no owner."""')
+    open(p,'w',encoding='utf-8').write(s)
+    p='tests/unit/parsing/test_items.py'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace('("Priya – draft it"','("Priya \\u2013 draft it"')
+    open(p,'w',encoding='utf-8').write(s)
+    EOF
+    sed -n 36,48p actiontrack/parsing/items.py
+  [result]:
+    _NAME = r"@?[\w.'-]+(?:\s+[\w.'-]+){0,2}?"
+    _OWNER_SEPARATOR = r"\s*,\s*|\s*&\s*|\s+and\s+"
+    _LEADING_OWNER = re.compile(
+        rf"^(?P<owner>{_NAME}(?:(?:{_OWNER_SEPARATOR}){_NAME})*)\s*"
+        "(?P<conn>:|—|–| - |\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+    )
+    _SPLIT_OWNERS = re.compile(_OWNER_SEPARATOR)
+    _MENTION = re.compile(r"(?<![\w.@])@(?P<handle>\w[\w.'-]*\w|\w)")
+    # Brackets left empty once the due phrase is taken out: `book venue (due 2026-12-01)`.
+    _EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]")
+    _TASK_EDGES = " \t,;:-–—"
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The dash replacement didn't apply and the raw prefix got dropped; fixing that directly.
+
+  [tool: Read] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+  [result]:
+    36	_NAME = r"@?[\w.'-]+(?:\s+[\w.'-]+){0,2}?"
+    37	_OWNER_SEPARATOR = r"\s*,\s*|\s*&\s*|\s+and\s+"
+    38	_LEADING_OWNER = re.compile(
+    39	    rf"^(?P<owner>{_NAME}(?:(?:{_OWNER_SEPARATOR}){_NAME})*)\s*"
+    40	    "(?P<conn>:|—|–| - |\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+    41	)
+    42	_SPLIT_OWNERS = re.compile(_OWNER_SEPARATOR)
+    43	_MENTION = re.compile(r"(?<![\w.@])@(?P<handle>\w[\w.'-]*\w|\w)")
+    44	# Brackets left empty once the due phrase is taken out: `book venue (due 2026-12-01)`.
+    45	_EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]")
+    46	_TASK_EDGES = " \t,;:-–—"
+    47
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+  old:     "(?P<conn>:|—|–| - |\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+)
+  new:     "(?P<conn>:|—|–| - |"  # colon, em dash, en dash, spaced hyphen, or a verb
+    r"\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+)
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+  old: _TASK_EDGES = " \t,;:-–—"
+  new: _TASK_EDGES = " \t,;:-–—"
+  [tool: Bash] [Re-run the full quality gate]
+  $ grep -n "draft it" tests/unit/parsing/test_items.py; uv run ruff format . >/dev/null; uv run ruff check . && uv run ruff format --check . && uv run mypy --strict actiontrack && uv run pytest -q --cov=actiontrack.parsing --cov-report=term-missing 2>&1 | tail -15
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py has been updated successfully.
+
+  [result] (error):
+    <tool_use_error>No changes to make: old_string and new_string are exactly the same.</tool_use_error>
+
+  [result] (error):
+    Exit code 1
+    218:        ("Priya - draft it", OwnerSplit("Priya", "draft it", False)),
+    219:        ("Priya – draft it", OwnerSplit("Priya", "draft it", False)),
+    RUF001 String contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+      --> actiontrack\parsing\items.py:40:19
+       |
+    38 | _LEADING_OWNER = re.compile(
+    39 |     rf"^(?P<owner>{_NAME}(?:(?:{_OWNER_SEPARATOR}){_NAME})*)\s*"
+    40 |     "(?P<conn>:|—|–| - |"  # colon, em dash, en dash, spaced hyphen, or a verb
+       |                   ^
+    41 |     r"\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+    42 | )
+       |
+    
+    RUF001 String contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+      --> actiontrack\parsing\items.py:47:23
+       |
+    45 | # Brackets left empty once the due phrase is taken out: `book venue (due 2026-12-01)`.
+    46 | _EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]")
+    47 | _TASK_EDGES = " \t,;:-–—"
+       |                       ^
+    
+    RUF001 String contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+       --> tests\unit\parsing\test_items.py:219:17
+        |
+    217 |         ("Priya to send quote", OwnerSplit("Priya", "send quote", False)),
+    218 |         ("Priya - draft it", OwnerSplit("Priya", "draft it", False)),
+    219 |         ("Priya – draft it", OwnerSplit("Priya", "draft it", False)),
+        |                 ^
+    220 |         ("Priya should call", OwnerSplit("Priya", "call", False)),
+    221 |         ("Priya must call", OwnerSplit("Priya", "call", False)),
+        |
+    
+    Found 3 errors.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The tools are turning `\u` escapes into literal dashes; I'll do this replacement with a byte-level script instead.
+
+  [tool: Bash] [Replace dashes with escapes and re-run gate]
+  $ python - <<'EOF'
+    EN, EM, BS = chr(0x2013), chr(0x2014), chr(92)
+    def fix(p, pairs):
+        s = open(p, encoding='utf-8').read()
+        for a, b in pairs:
+            assert a in s, (p, a)
+            s = s.replace(a, b)
+        open(p, 'w', encoding='utf-8', newline='').write(s)
+    fix('actiontrack/parsing/items.py', [
+        ('"(?P<conn>:|' + EM + '|' + EN + '|', '"(?P<conn>:|' + BS + 'u2014|' + BS + 'u2013|'),
+        ('",;:-' + EN + EM + '"', '",;:-' + BS + 'u2013' + BS + 'u2014"'),
+    ])
+    fix('tests/unit/parsing/test_items.py', [('"Priya ' + EN + ' draft it"', '"Priya ' + BS + 'u2013 draft it"')])
+    EOF
+    sed -n 38,47p actiontrack/parsing/items.py; uv run ruff format . >/dev/null; uv run ruff check . && uv run ruff format --check . && uv run mypy --strict actiontrack && uv run pytest -q --cov=actiontrack.parsing --cov-report=term-missing 2>&1 | tail -15
+  [result] (error):
+    Exit code 1
+    Traceback (most recent call last):
+      File "<stdin>", line 8, in <module>
+      File "<stdin>", line 5, in fix
+    AssertionError: ('actiontrack/parsing/items.py', '",;:-��"')
+    _LEADING_OWNER = re.compile(
+        rf"^(?P<owner>{_NAME}(?:(?:{_OWNER_SEPARATOR}){_NAME})*)\s*"
+        "(?P<conn>:|—|–| - |"  # colon, em dash, en dash, spaced hyphen, or a verb
+        r"\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+    )
+    _SPLIT_OWNERS = re.compile(_OWNER_SEPARATOR)
+    _MENTION = re.compile(r"(?<![\w.@])@(?P<handle>\w[\w.'-]*\w|\w)")
+    # Brackets left empty once the due phrase is taken out: `book venue (due 2026-12-01)`.
+    _EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]")
+    _TASK_EDGES = " \t,;:-–—"
+    RUF001 String contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+      --> actiontrack\parsing\items.py:40:19
+       |
+    38 | _LEADING_OWNER = re.compile(
+    39 |     rf"^(?P<owner>{_NAME}(?:(?:{_OWNER_SEPARATOR}){_NAME})*)\s*"
+    40 |     "(?P<conn>:|—|–| - |"  # colon, em dash, en dash, spaced hyphen, or a verb
+       |                   ^
+    41 |     r"\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+    42 | )
+       |
+    
+    RUF001 String contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+      --> actiontrack\parsing\items.py:47:23
+       |
+    45 | # Brackets left empty once the due phrase is taken out: `book venue (due 2026-12-01)`.
+    46 | _EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]")
+    47 | _TASK_EDGES = " \t,;:-–—"
+       |                       ^
+    
+    RUF001 String contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+       --> tests\unit\parsing\test_items.py:219:17
+        |
+    217 |         ("Priya to send quote", OwnerSplit("Priya", "send quote", False)),
+    218 |         ("Priya - draft it", OwnerSplit("Priya", "draft it", False)),
+    219 |         ("Priya – draft it", OwnerSplit("Priya", "draft it", False)),
+    ... [6 more lines]
+
+  [tool: Bash] [Retry dash escape replacement and gate]
+  $ python - <<'EOF'
+    EN, EM, BS = chr(0x2013), chr(0x2014), chr(92)
+    def fix(p, pairs):
+        s = open(p, encoding='utf-8').read()
+        for a, b in pairs:
+            assert a in s, (p, a)
+            s = s.replace(a, b)
+        open(p, 'w', encoding='utf-8', newline='').write(s)
+    fix('actiontrack/parsing/items.py', [
+        ('"(?P<conn>:|' + EM + '|' + EN + '|', '"(?P<conn>:|' + BS + 'u2014|' + BS + 'u2013|'),
+        (',;:-' + EN + EM + '"', ',;:-' + BS + 'u2013' + BS + 'u2014"'),
+    ])
+    fix('tests/unit/parsing/test_items.py', [('"Priya ' + EN + ' draft it"', '"Priya ' + BS + 'u2013 draft it"')])
+    EOF
+    sed -n 38,47p actiontrack/parsing/items.py; uv run ruff format . >/dev/null; uv run ruff check . && uv run ruff format --check . && uv run mypy --strict actiontrack && uv run pytest -q --cov=actiontrack.parsing --cov-report=term-missing 2>&1 | tail -15
+  [result]:
+    _LEADING_OWNER = re.compile(
+        rf"^(?P<owner>{_NAME}(?:(?:{_OWNER_SEPARATOR}){_NAME})*)\s*"
+        "(?P<conn>:|\u2014|\u2013| - |"  # colon, em dash, en dash, spaced hyphen, or a verb
+        r"\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+    )
+    _SPLIT_OWNERS = re.compile(_OWNER_SEPARATOR)
+    _MENTION = re.compile(r"(?<![\w.@])@(?P<handle>\w[\w.'-]*\w|\w)")
+    # Brackets left empty once the due phrase is taken out: `book venue (due 2026-12-01)`.
+    _EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]")
+    _TASK_EDGES = " \t,;:-\u2013\u2014"
+    All checks passed!
+    44 files already formatted
+    Success: no issues found in 13 source files
+    ........................................................................ [ 86%]
+    ..............................................                           [100%]
+    =============================== tests coverage ================================
+    ______________ coverage: platform win32, python 3.12.10-final-0 _______________
+    
+    Name                                 Stmts   Miss  Cover   Missing
+    ------------------------------------------------------------------
+    actiontrack\parsing\__init__.py          0      0   100%
+    actiontrack\parsing\dates.py           101      4    96%   159-160, 162, 173
+    actiontrack\parsing\items.py            92      0   100%
+    actiontrack\parsing\note_loader.py     176      0   100%
+    actiontrack\parsing\people.py          115      0   100%
+    ------------------------------------------------------------------
+    TOTAL                                  484      4    99%
+    334 passed, 1 deselected in 25.94s
+    [This command modified 2 files you've previously read: tests\unit\parsing\test_items.py, actiontrack\parsing\items.py. Call Read before editing.]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Gate is clean: ruff, mypy, 334 tests pass, `items.py` at 100% coverage. Quick read of the final module before updating the spec docs.
+
+  [tool: Read] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+  [result]:
+    60	    owner_raw: str | None
+    61	    rest: str  # the text without the owner and its connector
+    62	    multi_owner: bool
+    63	
+    64	
+    65	def extract_items(
+    66	    note: NoteMeta, roster: Roster, *, date_order: DateOrder = "DMY"
+    67	) -> tuple[list[ParsedItem], list[LineWarning]]:
+    68	    """Every action item in the note, in line order, plus a warning per malformed checkbox."""
+    69	    items: list[ParsedItem] = []
+    70	    warnings: list[LineWarning] = []
+    71	    in_fence = False
+    72	    for line_no, line in note.lines:
+    73	        if _FENCE.match(line):
+    74	            in_fence = not in_fence
+    75	            continue
+    76	        if in_fence:
+    77	            continue
+    78	        kind = classify_line(line)
+    79	        if kind is None:
+    80	            continue
+    81	        if isinstance(kind, MalformedCheckbox):
+    82	            warnings.append(LineWarning(note.path, line_no, kind.code, line.strip()))
+    83	            continue
+    84	
+    85	        split = split_owner(clean_inline_markdown(kind.body))
+    86	        due = extract_due(split.rest, anchor=note.meeting_date, date_order=date_order)
+    87	        rest = split.rest
+    88	        if due.span is not None:
+    89	            start, end = due.span
+    90	            rest = rest[:start] + " " + rest[end:]
+    91	        task = _tidy_task(rest)
+    92	        if not task:
+    93	            warnings.append(LineWarning(note.path, line_no, WarningCode.EMPTY_TASK, line.strip()))
+    94	            continue
+    95	
+    96	        owner = roster.resolve(split.owner_raw)
+    97	        flags = owner.flags | due.flags
+    98	        if split.multi_owner:
+    99	            flags |= {Flag.MULTI_OWNER}
+    ... [56 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Let me sanity-check the owner regex for backtracking blow-up on pathological lines.
+
+  [tool: Bash] [Time owner split on pathological inputs]
+  $ uv run python -c "
+    import time
+    from actiontrack.parsing.items import split_owner
+    for s in [' and '.join(['Ab']*25)+' x', ', '.join(['Ab Cd']*30)+' x', 'Ab '*300+'x', ' & '.join(['A B C']*25)+' y']:
+        t=time.perf_counter(); split_owner(s); print(round(time.perf_counter()-t,4))
+    "
+  [result]:
+    0.5385
+    0.0001
+    0.0
+    0.0001
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Chained `and`s backtrack exponentially (25 → 0.5 s). Stopping name tokens from consuming `and` removes the ambiguity.
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+  old: _NAME = r"@?[\w.'-]+(?:\s+[\w.'-]+){0,2}?"
+  new: # `and` is only ever a separator; letting a name contain it makes the match backtrack exponentially.
+_NAME = r"@?[\w.'-]+(?:\s+(?!and\b)[\w.'-]+){0,2}?"
+  [tool: Bash] [Re-time pathological inputs and re-run checks]
+  $ uv run python -c "
+    import time
+    from actiontrack.parsing.items import split_owner
+    for s in [' and '.join(['Ab']*200)+' x', ' and '.join(['Ab Cd']*200)+' to x', ', '.join(['Ab Cd']*200)+' x', ' & '.join(['A B C']*200)+' y']:
+        t=time.perf_counter(); r=split_owner(s); print(round(time.perf_counter()-t,4), r.owner_raw, r.multi_owner)
+    " && uv run ruff check . && uv run ruff format --check . && uv run mypy --strict actiontrack && uv run pytest -q tests/unit/parsing 2>&1 | tail -2
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py has been updated successfully.
+
+  [result]:
+    0.0004 None False
+    0.0009 Ab Cd True
+    0.0006 None False
+    0.0006 None False
+    All checks passed!
+    44 files already formatted
+    Success: no issues found in 13 source files
+    .............................                                            [100%]
+    245 passed, 1 deselected in 8.20s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Fast now. Adding a regression test for that, then updating tasks/spec/plan.
+
+  [tool: Bash] [Add regression test, update spec, tasks, plan]
+  $ python - <<'EOF'
+    p='tests/unit/parsing/test_items.py'
+    s=open(p,encoding='utf-8').read()
+    anchor='''def test_split_owner(body: str, expected: OwnerSplit) -> None:
+        assert split_owner(body) == expected
+    '''
+    assert anchor in s
+    s=s.replace(anchor, anchor+'''
+    
+    def test_split_owner_long_owner_list_does_not_backtrack() -> None:
+        # Took exponential time when a name could also swallow `and`.
+        assert split_owner(" and ".join(["Ab"] * 200) + " x").owner_raw is None
+    ''')
+    open(p,'w',encoding='utf-8',newline='').write(s)
+    
+    p='spec/modules/M4-item-extraction/tasks.md'
+    s=open(p,encoding='utf-8').read().replace('- [ ] **T4','- [x] **T4')
+    open(p,'w',encoding='utf-8',newline='').write(s)
+    
+    p='spec/modules/M4-item-extraction/spec.md'
+    s=open(p,encoding='utf-8').read()
+    a='''4. Otherwise owner_raw = None.
+    '''
+    assert a in s
+    s=s.replace(a, a+'''
+    Details settled while implementing:
+    - A name token is never `and`; `and` is only a separator between owners (this also keeps the match linear).
+    - A label before the owner is skipped: when the connector is `:` and the rest itself starts with a name and a non-`:`
+      connector, that inner name is the owner (`Sub-task: Priya will check numbers` → Priya). `Rahul Mehta: book venue` is
+      unaffected because `book venue` has no leading name.
+    ... [18 more lines]
+  [result]:
+    All checks passed!
+    44 files already formatted
+    ...............................................                          [100%]
+    335 passed, 1 deselected in 11.65s
+     M actiontrack/parsing/dates.py
+     M spec/modules/M3-dates/spec.md
+     M spec/modules/M4-item-extraction/spec.md
+     M spec/modules/M4-item-extraction/tasks.md
+     M spec/plan.md
+    ?? actiontrack/parsing/items.py
+    ?? tests/unit/parsing/conftest.py
+    ?? tests/unit/parsing/test_items.py
+    [This command modified 2 files you've previously read: spec\plan.md, tests\unit\parsing\test_items.py. Call Read before editing.]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Checking the diff is clean (no line-ending churn), then committing and opening the PR like M1–M3.
+
+  [tool: Bash] [Review diff of spec changes]
+  $ git diff --stat && git diff spec/plan.md spec/modules/M4-item-extraction/spec.md | head -60
+  [result]:
+    warning: in the working copy of 'actiontrack/parsing/dates.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M3-dates/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M4-item-extraction/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M4-item-extraction/tasks.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+     actiontrack/parsing/dates.py             |  4 ++--
+     spec/modules/M3-dates/spec.md            |  2 +-
+     spec/modules/M4-item-extraction/spec.md  | 11 ++++++++++-
+     spec/modules/M4-item-extraction/tasks.md | 14 +++++++-------
+     spec/plan.md                             |  4 ++--
+     5 files changed, 22 insertions(+), 13 deletions(-)
+    warning: in the working copy of 'spec/modules/M4-item-extraction/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    diff --git a/spec/modules/M4-item-extraction/spec.md b/spec/modules/M4-item-extraction/spec.md
+    index 9be30e7..6e17fed 100644
+    --- a/spec/modules/M4-item-extraction/spec.md
+    +++ b/spec/modules/M4-item-extraction/spec.md
+    @@ -47,9 +47,18 @@ and collapses whitespace.
+     3. **`@mention` anywhere** (only if rule 1 didn't match): the first `@handle` → owner = handle. The mention is removed from the text.
+     4. Otherwise owner_raw = None.
+     
+    +Details settled while implementing:
+    +- A name token is never `and`; `and` is only a separator between owners (this also keeps the match linear).
+    +- A label before the owner is skipped: when the connector is `:` and the rest itself starts with a name and a non-`:`
+    +  connector, that inner name is the owner (`Sub-task: Priya will check numbers` → Priya). `Rahul Mehta: book venue` is
+    +  unaffected because `book venue` has no leading name.
+    +- An `@handle` preceded by a word character, `.` or `@` (an email address) is not a mention. A trailing `.` is not part
+    +  of the handle.
+    +
+     **Due**: `extract_due(rest, anchor=note.meeting_date)` (M3). The phrase at `span` is removed from `rest`.
+     
+    -**Task**: what's left of `rest`, trimmed of surrounding whitespace, `,;:-–—` and a trailing `.`. Original casing is kept.
+    +**Task**: what's left of `rest`, with brackets the due phrase leaves empty removed (`book venue (due 2026-12-01)` →
+    +`book venue`), trimmed of surrounding whitespace, `,;:-–—` and a trailing `.`. Original casing is kept.
+     Empty → `LineWarning(EMPTY_TASK)`, no item.
+     
+     **Owner resolution**: `roster.resolve(owner_raw)` (M2).
+    diff --git a/spec/plan.md b/spec/plan.md
+    index a5562f5..d45bb7d 100644
+    --- a/spec/plan.md
+    ... [19 more lines]
+
+  [tool: Bash] [Commit, push branch and open the PR]
+  $ git add -A && git commit -q -F - <<'EOF'
+    M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+    
+    - parsing/items.py: classify_line (valid/malformed/empty checkboxes, code fences),
+      clean_inline_markdown, split_owner (leading name + connector, multi-owner, label
+      prefix, @mention fallback) and extract_items wiring M2 owner resolution and M3 dues.
+    - M3: a due expression also stops at `)`, so `(due 2026-12-01)` yields `due 2026-12-01`.
+    - Tests TC-M4-01..23 plus unit tests for the helpers; test builders in tests/unit/parsing/conftest.py.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git push -q -u origin feat/m4-item-extraction 2>&1 | tail -3
+    gh pr create --base main --title "M4: action item extraction" --body-file - <<'EOF'
+    Implements [M4 — Action Item Extraction](spec/modules/M4-item-extraction/spec.md) in `actiontrack/parsing/items.py`.
+    
+    **Test cases:** TC-M4-01 … TC-M4-23 (`tests/unit/parsing/test_items.py`), plus unit tests for `classify_line`, `split_owner` and `clean_inline_markdown`.
+    **REQ IDs:** REQ-ITEM-01 … 07.
+    
+    ### What's in it
+    - `classify_line`: valid `-`/`*`/`+` checkboxes (any indent), malformed checkboxes (`-[ ]`, `- []`, `[ ]`, `- [-]`) → `MALFORMED_CHECKBOX`, an empty checkbox → `EMPTY_TASK`. Lines inside ```` ``` ```` / `~~~` fences are ignored.
+    - `split_owner`: leading name + connector (`:`, em/en dash, ` - `, `to`/`will`/`should`/`must`/`needs to`/`is to`), uppercase guard, multi-owner (`and`, `&`, `,`) → first owner + `MULTI_OWNER`, label prefix (`Sub-task: Priya will …`), `@mention` fallback.
+    - `extract_items`: due phrase removed by span, task trimmed (empty brackets left by the due phrase removed too), roster resolution, flag union, line order.
+    
+    ### Spec changes (in this PR)
+    - **M4 spec:** documented the label-prefix rule, mention boundaries, `and` as separator only, and empty-bracket removal.
+    - **M3 (small behaviour change):** a connector expression now also stops at `)`, so `book venue (due 2026-12-01)` gives `due_raw = "due 2026-12-01"` as the M4 examples expect (previously the bare ISO date won). All M3 tests still pass.
+    
+    ### Notes
+    - The owner regex originally backtracked exponentially on long `A and B and C …` chains (25 names ≈ 0.5 s); name tokens can no longer be `and`, and a regression test covers 200 names.
+    
+    ... [5 more lines]
+  [result]:
+    warning: in the working copy of 'actiontrack/parsing/dates.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M3-dates/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M4-item-extraction/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M4-item-extraction/tasks.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/parsing/items.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/unit/parsing/conftest.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/unit/parsing/test_items.py', LF will be replaced by CRLF the next time Git touches it
+    remote: Create a pull request for 'feat/m4-item-extraction' on GitHub by visiting:        
+    remote:      https://github.com/mohit-gupta-coditas/actiontrack-py/pull/new/feat/m4-item-extraction        
+    remote: 
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/4
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Following the M3 pattern, linking the PR on the status board:
+
+  [tool: Bash] [Link PR #4 on the status board and push]
+  $ sed -i 's#^| M4 | Draft | ☑ | ☑ | ☑ | — |#| M4 | Draft | ☑ | ☑ | ☑ | [\#4](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/4) |#' spec/plan.md && grep -n "^| M4 " spec/plan.md && git commit -q -am "M4: link PR #4 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>&1 | tail -1; git log --oneline -3
+  [result]:
+    86:| M4 | Draft | ☑ | ☑ | ☑ | [#4](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/4) |
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    ae8ba25 M4: link PR #4 on the status board
+    4e306ba M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+    64e2287 Merge pull request #3 from mohit-gupta-coditas/feat/m3-dates
+    [This command modified 1 file you've previously read: spec\plan.md. Call Read before editing.]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M4 (action item extraction) is finished and up for review as [PR #4](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/4) on branch `feat/m4-item-extraction`. ruff, format and `mypy --strict` are clean, all 335 tests pass, and the new [items.py](actiontrack/parsing/items.py) has 100% coverage.
+
+**What it does:**
+- **Line checks:** it finds checkbox lines and warns about broken ones (`-[ ]`, `- []`, `[ ]`, `- [-]`) and about empty ones. Anything inside a code block is skipped.
+- **Owner:** it takes the name before a connector like `:`, a dash, `to`, `will` or `should`. Lines starting with a lowercase word get no owner. When several people are named (`and`, `&`, `,`), the first one becomes the owner and the item is flagged as multi-owner. If no name leads the line, an `@mention` anywhere in it is used.
+- **Task and due date:** the due phrase is cut out of the text, the task is trimmed, and a line with no task left gives a warning. The owner is matched against the attendees from M2 and the flags are combined.
+- **Tests:** all 23 M4 test cases (TC-M4-01 to 23) are in [test_items.py](tests/unit/parsing/test_items.py), plus tests for the helpers. The note and attendee-list builders for tests are in [conftest.py](tests/unit/parsing/conftest.py).
+
+**Decisions to check in review:**
+- **I changed M3 slightly.** A due phrase now also stops at `)`. Before, `book venue (due 2026-12-01)` returned only `2026-12-01` as the due phrase and left `(due )` in the task. Now it returns `due 2026-12-01`, which matches the M4 spec's example. The M3 spec has the matching edit and all M3 tests still pass.
+- **Rules I added and wrote into the M4 spec:**
+  - A label before the owner is skipped: `Sub-task: Priya will …` gives owner Priya. The spec's example needed this.
+  - An email address doesn't count as an `@mention`.
+  - Brackets left empty once the due date is cut out are removed.
+- **Slowdown fixed:** the first version of the owner pattern got exponentially slow on long `A and B and C …` lists (25 names took about 0.5 s). It's fixed, and a regression test covers 200 names.
+
+The status board in [plan.md](spec/plan.md) marks M4 as done and links PR #4.
+
+
+####################################################################################################
+USER:
+I merged the PR
+
+  [tool: Bash] [Switch to main, pull merge, delete local branch]
+  $ git checkout -q main && git pull -q && git branch -d feat/m4-item-extraction && git log --oneline -3 && git status --short
+  [result]:
+    Deleted branch feat/m4-item-extraction (was ae8ba25).
+    9e129b8 Merge pull request #4 from mohit-gupta-coditas/feat/m4-item-extraction
+    ae8ba25 M4: link PR #4 on the status board
+    4e306ba M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'm back on `main` with the merge pulled, and I deleted the local `feat/m4-item-extraction` branch. The working tree is clean.
+
+Next in the build order is M5 (dedup and item IDs), which now has real M4 output to work with. M6 (SQLite store), M9 (email rendering) and M10 (Gmail MCP adapter) depend only on M0, so any of those could also come next. Tell me which one you want and I'll start it.
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv5.txt in conversations folder
+
+  [tool: Bash] [Inspect existing conversation exports]
+  $ ls -la conversations 2>&1; git check-ignore -v conversations 2>&1; for f in conversations/*; do echo "== $f"; head -c 1500 "$f"; echo; done 2>/dev/null | head -80
+  [result]:
+    total 152
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 02:00 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 01:57 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 70905 Nov 26 01:59 conv1.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 75430 Nov 26 02:00 conv2.txt
+    == conversations/conv1.txt
+    actiontrack — Conversation 1 (spec & SDD planning)
+    Session: 07eac96f-814b-4807-ae16-5a0afaba949a
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo (spec/).
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    Scenario
+    
+    
+    Your team's meeting notes pile up as markdown files. Action items get lost, and follow-up emails are written late or not at all. You will build a small CLI tool, actiontrack, that reads meeting notes, tracks the action items, and drafts follow-up emails for review.
+    
+    
+    What you build
+    
+    
+    A CLI with four commands:
+    
+    
+    1. actiontrack ingest <folder> parses every .md meeting note in the folder. Each note has
+       a date, attendees and free- appear as lines like - [ ]Priya to send the revised quote by Friday. The tool stores them with owner, task, due
+       date (resolved to a real daurce file and status.
+    2. actiontrack list shows items. Filters: --owner, --status open|done|overdue,
+       --due-before <date>. Overdu
+    3. actiontrack done <id> marks an item as done.
+    4. actiontrack followup <ownerper owner covering their openand overdue items, and creates a Gmail draft through the Gmail MCP connector. It never sends.
+    
+    
+    Edge cases the tool must handl
+    Duplicate items repeated across several meetings.
+    Items with no owner or no da
+    Two people with the s
+    ... [42 more lines]
+
+  [tool: Bash] [See conv2 structure markers]
+  $ grep -n "^####\|^USER\|^ASSISTANT\|\[tool: Write\]\|\[tool: Edit\]\|truncated\|omitted\|lines\]" conversations/conv2.txt | head -50; tail -40 conversations/conv2.txt
+  [result]:
+    4:Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+    8:####################################################################################################
+    9:USER:
+    55:    ... [23 more lines]
+    100:    ... [22 more lines]
+    145:    ... [127 more lines]
+    190:    ... [38 more lines]
+    235:    ... [63 more lines]
+    314:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\__init__.py  (63 chars — content in repo)
+    315:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\note_loader.py  (9773 chars — content in repo)
+    358:    ... [98 more lines]
+    388:    ... [truncated, 534 more chars]
+    395:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py  (14301 chars — content in repo)
+    473:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\note_loader.py
+    480:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\spec\modules\M1-note-loader\spec.md
+    484:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py
+    487:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py
+    491:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py
+    553:    ... [2 more lines]
+    575:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\note_loader.py
+    828:####################################################################################################
+    829:USER:
+    890:    ... [9 more lines]
+    905:####################################################################################################
+    906:USER:
+    950:    ... [18 more lines]
+    981:####################################################################################################
+    982:USER:
+    1001:####################################################################################################
+    1002:USER:
+    1021:####################################################################################################
+    1022:USER:
+    1046:####################################################################################################
+    1047:USER:
+    1060:    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo (spec/).
+    1093:    ... [18 more lines]
+    1145:    ... [25 more lines]
+    1204:        s = s if len(s) <= w else s[:w] + f"\n... [truncated, {len(s) - w} more chars]"
+    1206:        return "\n".join(lines[:n] + ([f"... [{len(lines) - n} more lines]"] if len(lines) > n else []))
+    1221:    ... [38 more lines]
+    ... [29 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Earlier exports used a script over the session transcript file. I'll reuse it for this session.
+
+  [tool: Bash] [Locate session transcript and old export script]
+  $ ls /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/*.jsonl; ls /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/*/scratchpad/export_conv.py 2>&1
+  [result]:
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/04b88705-fbd0-4fea-b5b0-7866965db888.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/07eac96f-814b-4807-ae16-5a0afaba949a.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/0d30c101-070d-4348-b012-7e9f7822358a.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/40fa2a55-2010-4d82-bbef-9c8d278b7bbe.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/702b62e6-f52e-4636-84e6-2ca9a59935a3.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/ba1cdb32-a9c1-4616-af83-fda2d6eff3eb.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/f9a42155-df89-4707-9ee1-ad5b8ae48bb5.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fb5f7051-92b3-4b92-956b-4bd9e245f133.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fbcc87aa-8b24-49a1-a21c-d98a23ff3366.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fc60775a-5ec3-4fb9-ab44-e0af09b2fdce.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/ffc43fb1-0a8a-431d-a4a8-4cd3e0395e97.jsonl
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/ba1cdb32-a9c1-4616-af83-fda2d6eff3eb/scratchpad/export_conv.py
+
+  [tool: Bash] [Read the previous export script]
+  $ cat /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/ba1cdb32-a9c1-4616-af83-fda2d6eff3eb/scratchpad/export_conv.py
+  [result]:
+    import json, re, sys
+    
+    src, dst = sys.argv[1], sys.argv[2]
+    SESSION = "ba1cdb32-a9c1-4616-af83-fda2d6eff3eb"
+    TAGS = re.compile(r"<(system-reminder|ide_opened_file|ide_selection)>.*?</\1>", re.S)
+    
+    
+    def clean(s):
+        return TAGS.sub("", s).strip()
+    
+    
+    def short(s, n=40, w=4000):
+        s = s if len(s) <= w else s[:w] + f"\n... [truncated, {len(s) - w} more chars]"
+        lines = s.splitlines()
+        return "\n".join(lines[:n] + ([f"... [{len(lines) - n} more lines]"] if len(lines) > n else []))
+    
+    
+    def tool_summary(name, inp):
+        if name in ("Bash", "PowerShell"):
+            return f"[{inp.get('description', '')}]\n  $ " + short(inp.get("command", ""), 30).replace("\n", "\n    ")
+        if name == "Write":
+            return f"{inp.get('file_path')}  ({len(inp.get('content', ''))} chars — content in repo)"
+        if name == "Edit":
+            return (f"{inp.get('file_path')}\n  old: " + short(inp.get("old_string", ""), 10, 300)
+                    + "\n  new: " + short(inp.get("new_string", ""), 10, 300))
+        if name == "Read":
+            return str(inp.get("file_path"))
+        return short(json.dumps(inp, ensure_ascii=False), 10, 600)
+    
+    
+    out = [
+        "actiontrack — Conversation 2 (M1 note loader: implement, PR, merge)",
+        f"Session: {SESSION}",
+        "Exported: 2026-11-26",
+        "Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.",
+        "=" * 100, "",
+    ]
+    for line in open(src, encoding="utf-8"):
+        d = json.loads(line)
+        if d.get("type") not in ("user", "assistant") or d.get("isSidechain") or d.get("isMeta"):
+    ... [25 more lines]
+
+  [tool: Bash] [Export this session to conversations/conv5.txt]
+  $ OLD=/c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/ba1cdb32-a9c1-4616-af83-fda2d6eff3eb/scratchpad/export_conv.py
+    NEW=/c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6/scratchpad/export_conv.py
+    sed -e 's/ba1cdb32-a9c1-4616-af83-fda2d6eff3eb/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6/' -e 's/Conversation 2 (M1 note loader: implement, PR, merge)/Conversation 5 (M4 item extraction: implement, PR, merge)/' "$OLD" > "$NEW"
+    cd /c/Users/Coditas-Admin/Desktop/actionTracker && python "$NEW" /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6.jsonl conversations/conv5.txt && head -12 conversations/conv5.txt && grep -c "^USER:" conversations/conv5.txt && tail -5 conversations/conv5.txt

@@ -1,0 +1,1780 @@
+actiontrack — Conversation 9 (M8 list & done: gaps, implement, PR, merge)
+Session: 702b62e6-f52e-4636-84e6-2ca9a59935a3
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on M8 module use the ask user question tool if there are any gaps.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll start by looking at the repo layout and finding what M8 is.
+
+  [tool: Bash] [List repo files and recent history]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && ls -la && git log --oneline | head -30 && find . -path ./node_modules -prune -o -path ./.git -prune -o -type f -print | grep -v node_modules | head -100
+  [result]:
+    total 507
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 23:59 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 22:21 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121  53248 Nov 25 23:59 .coverage
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 26 00:07 .git
+    -rw-r--r-- 1 mohit.gupta_coditas 197121    140 Nov 25 20:37 .gitignore
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:45 .mypy_cache
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:34 .pytest_cache
+    -rw-r--r-- 1 mohit.gupta_coditas 197121      6 Nov 25 20:37 .python-version
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:35 .ruff_cache
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 20:30 .venv
+    -rw-r--r-- 1 mohit.gupta_coditas 197121    133 Nov 25 20:37 README.md
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 26 00:07 actiontrack
+    -rw-r--r-- 1 mohit.gupta_coditas 197121   1214 Nov 25 20:51 pyproject.toml
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 26 00:07 spec
+    drwxr-xr-x 1 mohit.gupta_coditas 197121      0 Nov 25 23:34 tests
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 422054 Nov 25 20:51 uv.lock
+    96a8bf2 Merge pull request #7 from mohit-gupta-coditas/feat/m7-ingest
+    e09fe59 M7: link PR #7 on the status board
+    1e5ef47 M7: confirm gap G4 in the root spec
+    9dd2c90 M7: ingest command (scan, per-file pipeline, deleted files, regroup, report)
+    7b58e7a Merge pull request #6 from mohit-gupta-coditas/feat/m6-store
+    55af035 M6: confirm gaps G1 and G2 in the root spec
+    73057c2 M6: link PR #6 on the status board
+    3dd8f37 M6: SQLite store (connection, migrations, schema v1, repositories)
+    db29b1e Merge pull request #5 from mohit-gupta-coditas/feat/m5-dedup
+    3e494b8 M5: link PR #5 on the status board
+    0168eb3 M5: dedup & item IDs (normalization, exact/fuzzy grouping, merged fields, ID prefixes)
+    9e129b8 Merge pull request #4 from mohit-gupta-coditas/feat/m4-item-extraction
+    ae8ba25 M4: link PR #4 on the status board
+    4e306ba M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+    64e2287 Merge pull request #3 from mohit-gupta-coditas/feat/m3-dates
+    f26ab9d M3: link PR #3 on the status board
+    49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    eb52c66 M2: people & owner resolution (attendee parsing, roster, owner rules, email derivation)
+    4877a8e M0: mark T0.12 done and record merge in status board
+    5cfe703 M1: tick T1.9 and link PR #1 on the status board
+    79eea25 Merge pull request #1 from mohit-gupta-coditas/feat/m1-note-loader
+    ... [40 more lines]
+
+  [tool: Bash] [List tracked files and config]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git ls-files && cat README.md pyproject.toml .gitignore
+  [result]:
+    .gitignore
+    .python-version
+    README.md
+    actiontrack/__init__.py
+    actiontrack/__main__.py
+    actiontrack/cli.py
+    actiontrack/clock.py
+    actiontrack/config.py
+    actiontrack/console.py
+    actiontrack/dedup.py
+    actiontrack/errors.py
+    actiontrack/models.py
+    actiontrack/parsing/__init__.py
+    actiontrack/parsing/dates.py
+    actiontrack/parsing/items.py
+    actiontrack/parsing/note_loader.py
+    actiontrack/parsing/people.py
+    actiontrack/services/__init__.py
+    actiontrack/services/ingest.py
+    actiontrack/store/__init__.py
+    actiontrack/store/db.py
+    actiontrack/store/migrations/0001_init.sql
+    actiontrack/store/repo.py
+    pyproject.toml
+    spec/modules/M0-foundation/spec.md
+    spec/modules/M0-foundation/tasks.md
+    spec/modules/M0-foundation/tests.md
+    spec/modules/M1-note-loader/spec.md
+    spec/modules/M1-note-loader/tasks.md
+    spec/modules/M1-note-loader/tests.md
+    spec/modules/M10-gmail-mcp/spec.md
+    spec/modules/M10-gmail-mcp/tasks.md
+    spec/modules/M10-gmail-mcp/tests.md
+    spec/modules/M11-followup/spec.md
+    spec/modules/M11-followup/tasks.md
+    spec/modules/M11-followup/tests.md
+    spec/modules/M12-e2e-release/spec.md
+    spec/modules/M12-e2e-release/tasks.md
+    spec/modules/M12-e2e-release/tests.md
+    spec/modules/M2-people/spec.md
+    ... [78 more lines]
+
+  [tool: Bash] [Read M8 spec, tasks, tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat spec/modules/M8-list-done/spec.md spec/modules/M8-list-done/tasks.md spec/modules/M8-list-done/tests.md
+  [tool: Bash] [Read implementation plan]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat spec/plan.md
+  [result]:
+    # M8 — `list` and `done` Commands
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M3 (`parse_user_date`), M5 (`resolve_prefix`, `shortest_unique_prefixes`), M6 |
+    | **Files** | `actiontrack/services/query.py`, the `list` and `done` commands in `actiontrack/cli.py` |
+    | **REQ IDs** | REQ-LIST-01 … 05, REQ-DONE-01, REQ-DONE-02 |
+    
+    ## 1. Purpose
+    Let the user see tracked items with filters (as a table for people or as JSON), and mark items done by short ID.
+    
+    ## 2. Interface
+    
+    ```python
+    @dataclass(frozen=True)
+    class ItemView:
+        id: str; short_id: str; owner_key: str | None; owner_display: str | None
+        task: str; due_date: date | None; status: Literal["open", "done", "overdue"]
+        flags: tuple[str, ...]; sources: tuple[SourceRef, ...]
+    
+    def resolve_owner_query(q: str, people: PeopleRepo) -> Person       # UserInputError if 0 or >1 matches (with candidates)
+    def list_items(conn, *, owner: str | None, status: str | None, due_before: str | None,
+                   unassigned: bool, flag: str | None, clock: Clock, date_order: str) -> list[ItemView]
+    def mark_done(conn, prefix: str, *, clock: Clock) -> tuple[ItemView, bool]   # (item, changed)
+    ```
+    `resolve_owner_query` is reused by M11.
+    
+    ## 3. `list` (REQ-LIST-01 … 05)
+    
+    ```
+    actiontrack list [--owner TEXT] [--status open|done|overdue] [--due-before DATE] [--unassigned] [--flag FLAG] [--json]
+    ```
+    
+    | Option | Behaviour |
+    |---|---|
+    | `--owner` | `resolve_owner_query`. 0 matches → `UserInputError('no person matches "x"')`. 2+ → `UserInputError('"Priya" matches 2 people', hint="Priya Shah <…>, Priya Nair <…> — use full name or email")`, exit 2 (REQ-LIST-05) |
+    | `--status` | Typer `Choice`. `open` includes overdue. When omitted → **open** (the default view, REQ-LIST-02) |
+    | `--due-before` | `parse_user_date(text, today=clock.today())`. Invalid → exit 2 |
+    | `--unassigned` | `owner_key IS NULL` |
+    ... [47 more lines]
+
+  [result]:
+    # actiontrack — Implementation Plan (Spec-Driven Development)
+    
+    | | |
+    |---|---|
+    | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
+    | **Status** | In progress. M0, M1, M2, M3, M4, M5, M6 and M7 done |
+    | **Date** | 2026-11-25 |
+    
+    ---
+    
+    ## 1. How we work
+    
+    Every module goes through the same steps, in this order:
+    
+    1. **Spec**: `modules/<M>/spec.md` is reviewed and marked *Approved*. Any change to the root spec is made there first.
+    2. **Tests (red)**: every test case in `modules/<M>/tests.md` is written as a pytest test whose name contains its TC ID
+       (e.g. `test_TC_M3_04_weekday_same_day_rolls_to_next_week`). They all fail.
+    3. **Implement (green)**: work through `modules/<M>/tasks.md` in order, ticking tasks off as they pass.
+    4. **Gate**: the module's Definition of Done (below) passes. Update the status board in §4.
+    5. **Merge**: branch `feat/<m-id>-<name>` → PR → `main`. The PR description links the module spec and lists its TC IDs.
+    
+    ### Definition of Done (every module)
+    - All TCs in the module's `tests.md` are implemented and passing.
+    - `ruff check`, `ruff format --check` and `mypy --strict actiontrack` are clean.
+    - Line coverage of the module's package is ≥ 90% for the pure modules (M1–M5, M9), and ≥ 80% for the others.
+    - No public interface differs from the spec. If it had to, the spec was updated first (in the same PR).
+    - Every REQ ID the module owns appears in at least one TC.
+    
+    ### Conventions
+    - **IDs**: requirements `REQ-<AREA>-NN` (root spec §18) · modules `M0`–`M12` · tasks `T<m>.<n>` · test cases `TC-M<m>-NN`.
+    - **Test locations**: `tests/unit/<package>/` for unit tests, `tests/integration/` for anything that touches SQLite, the file system or MCP,
+      `tests/e2e/` for M12. Shared fixtures live in `tests/fixtures/notes/<scenario>/`.
+    - **Markers**: `@pytest.mark.slow` for perf/e2e. The default `pytest` run excludes slow tests, and CI runs everything.
+    - **Time**: tests never read the real clock. They use `FixedClock` (M0).
+    
+    ## 2. Modules
+    
+    | ID | Module | Package / files | Depends on | REQ IDs owned |
+    |---|---|---|---|---|
+    | [M0](modules/M0-foundation/spec.md) | Foundation | `pyproject.toml`, `cli.py` skeleton, `config.py`, `models.py`, `errors.py`, `clock.py`, `console.py`, `__main__.py` | — | CLI-01..07, CLI-09, CLI-10 |
+    ... [16 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the existing code M8 builds on.
+
+  [tool: Bash] [Read CLI, console, errors, clock]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat actiontrack/cli.py actiontrack/console.py actiontrack/errors.py actiontrack/clock.py
+  [tool: Bash] [Read models and store code]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat actiontrack/models.py actiontrack/store/repo.py actiontrack/store/db.py actiontrack/store/migrations/0001_init.sql actiontrack/store/__init__.py actiontrack/services/__init__.py
+  [result]:
+    """Typer app: argument parsing, output formatting and exception → exit-code mapping only.
+    
+    Heavy dependencies (dateparser, rapidfuzz, mcp, jinja2) must only be imported inside command
+    functions, never at module level here or in anything imported from here (REQ-CLI-08).
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import logging
+    import os
+    import sys
+    import traceback
+    from collections.abc import Mapping, Sequence
+    from dataclasses import dataclass
+    from pathlib import Path
+    from typing import Annotated, Any
+    
+    import typer
+    from rich.console import Console
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+    from rich.table import Table
+    
+    # Typer vendors Click; its ClickException (usage errors, bad parameters) is not re-exported.
+    from typer._click.exceptions import ClickException
+    
+    from actiontrack import __version__
+    from actiontrack.clock import Clock, clock_from_env
+    from actiontrack.config import Config, load_config, settings_view
+    from actiontrack.console import Output, configure_stdio_utf8, make_output
+    from actiontrack.errors import ActionTrackError, ExitCode, FatalError, UserInputError
+    from actiontrack.models import JSON_SCHEMA_VERSION, to_jsonable
+    
+    PROG_NAME = "actiontrack"
+    DEBUG_ENV = "ACTIONTRACK_DEBUG"
+    CONTEXT_SETTINGS: dict[str, Any] = {"help_option_names": ["-h", "--help"]}
+    
+    
+    @dataclass
+    class AppContext:
+    ... [75 more lines]
+
+  [result]:
+    <persisted-output>
+    Output too large (30.1KB). Full output saved to: C:\Users\Coditas-Admin\.claude\projects\c--Users-Coditas-Admin-Desktop-actionTracker\702b62e6-f52e-4636-84e6-2ca9a59935a3\tool-results\b75v7ggbm.txt
+    
+    Preview (first 2KB):
+    """Shared data contracts passed between modules (M0 spec §8).
+    
+    Later modules consume these types. Fields may only be added by changing the M0 spec first.
+    """
+    
+    from __future__ import annotations
+    
+    import dataclasses
+    from collections.abc import Mapping
+    from dataclasses import dataclass
+    from datetime import date, datetime
+    from enum import Enum, StrEnum
+    from pathlib import Path
+    from typing import Any, Literal
+    
+    JSON_SCHEMA_VERSION = 1
+    
+    
+    class Flag(StrEnum):
+        UNASSIGNED = "unassigned"
+        AMBIGUOUS_OWNER = "ambiguous_owner"
+        OWNER_NOT_ATTENDEE = "owner_not_attendee"
+        MULTI_OWNER = "multi_owner"
+        NO_DUE = "no_due"
+        UNPARSED_DUE = "unparsed_due"
+        ORPHANED = "orphaned"
+    
+    
+    class SkipReason(StrEnum):
+        EMPTY_FILE = "empty_file"
+        BINARY_FILE = "binary_file"
+        INVALID_ENCODING = "invalid_encoding"
+        INVALID_FRONTMATTER = "invalid_frontmatter"
+        MISSING_DATE = "missing_date"
+        UNPARSEABLE_DATE = "unparseable_date"
+        MISSING_ATTENDEES = "missing_attendees"
+    ... [51 more lines]
+
+  [tool: Read] C:\Users\Coditas-Admin\.claude\projects\c--Users-Coditas-Admin-Desktop-actionTracker\702b62e6-f52e-4636-84e6-2ca9a59935a3\tool-results\b75v7ggbm.txt
+  [result]:
+    1	"""Shared data contracts passed between modules (M0 spec §8).
+    2	
+    3	Later modules consume these types. Fields may only be added by changing the M0 spec first.
+    4	"""
+    5	
+    6	from __future__ import annotations
+    7	
+    8	import dataclasses
+    9	from collections.abc import Mapping
+    10	from dataclasses import dataclass
+    11	from datetime import date, datetime
+    12	from enum import Enum, StrEnum
+    13	from pathlib import Path
+    14	from typing import Any, Literal
+    15	
+    16	JSON_SCHEMA_VERSION = 1
+    17	
+    18	
+    19	class Flag(StrEnum):
+    20	    UNASSIGNED = "unassigned"
+    21	    AMBIGUOUS_OWNER = "ambiguous_owner"
+    22	    OWNER_NOT_ATTENDEE = "owner_not_attendee"
+    23	    MULTI_OWNER = "multi_owner"
+    24	    NO_DUE = "no_due"
+    25	    UNPARSED_DUE = "unparsed_due"
+    26	    ORPHANED = "orphaned"
+    27	
+    28	
+    29	class SkipReason(StrEnum):
+    30	    EMPTY_FILE = "empty_file"
+    31	    BINARY_FILE = "binary_file"
+    32	    INVALID_ENCODING = "invalid_encoding"
+    33	    INVALID_FRONTMATTER = "invalid_frontmatter"
+    34	    MISSING_DATE = "missing_date"
+    35	    UNPARSEABLE_DATE = "unparseable_date"
+    36	    MISSING_ATTENDEES = "missing_attendees"
+    37	    READ_ERROR = "read_error"
+    38	    INTERNAL_ERROR = "internal_error"
+    39	
+    40	
+    ... [113 more lines]
+
+  [tool: Bash] [Read prefix helpers and user date parser]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n "def resolve_prefix\|def shortest_unique_prefixes\|MIN_PREFIX\|class.*Error\|^def \|^[A-Z_]* = " actiontrack/dedup.py && sed -n "$(grep -n 'def shortest_unique_prefixes' actiontrack/dedup.py | cut -d: -f1),+60p" actiontrack/dedup.py; grep -n "def parse_user_date" -A40 actiontrack/parsing/dates.py
+  [tool: Bash] [Find list/done requirements in root spec]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n "LIST\|DONE\|orphan\|G3\|ambiguous" spec/requirements.md | head -80
+  [result]:
+    29:_NON_WORD = re.compile(r"[^\w\s]")
+    30:_STOP_WORDS = frozenset({"the", "a", "an"})
+    31:_HEX = re.compile(r"^[0-9a-f]+$")
+    32:_OWNER_FLAGS = frozenset(
+    35:_MIN_PREFIX = 4
+    67:def normalize_task(task: str) -> str:
+    73:def make_item_id(owner_key: str | None, task_norm: str) -> str:
+    78:def group_items(
+    140:def shortest_unique_prefixes(ids: Iterable[str], *, min_len: int = 6) -> dict[str, str]:
+    151:def resolve_prefix(prefix: str, ids: Iterable[str]) -> str:
+    154:    if len(p) < _MIN_PREFIX or not _HEX.match(p):
+    157:            hint=f"use at least {_MIN_PREFIX} hex characters of an item id",
+    171:def _scorer(cfg: DedupConfig) -> Scorer | None:
+    181:def _identity(owner: OwnerResolution) -> str | None:
+    190:def _merge(g: _Group) -> ItemGroup:
+    234:def _common_prefix_len(a: str, b: str) -> int:
+    def shortest_unique_prefixes(ids: Iterable[str], *, min_len: int = 6) -> dict[str, str]:
+        """Each ID's shortest prefix (at least `min_len` chars) that no other ID in the set shares."""
+        ordered = sorted(set(ids))
+        out: dict[str, str] = {}
+        for i, item_id in enumerate(ordered):
+            neighbours = ordered[max(i - 1, 0) : i] + ordered[i + 1 : i + 2]
+            shared = max((_common_prefix_len(item_id, o) for o in neighbours), default=0)
+            out[item_id] = item_id[: max(min_len, shared + 1)]
+        return out
+    
+    
+    def resolve_prefix(prefix: str, ids: Iterable[str]) -> str:
+        """The one ID starting with `prefix` (case-insensitive, at least 4 hex chars)."""
+        p = prefix.strip().lower()
+        if len(p) < _MIN_PREFIX or not _HEX.match(p):
+            raise UserInputError(
+                f'invalid id "{prefix.strip()}"',
+                hint=f"use at least {_MIN_PREFIX} hex characters of an item id",
+            )
+        all_ids = set(ids)
+        matches = sorted(i for i in all_ids if i.startswith(p))
+        if not matches:
+            raise UserInputError(f'no item with id "{p}"')
+        if len(matches) > 1:
+    ... [52 more lines]
+
+  [result]:
+    43:| D9 | Same first name | Resolve against **that note's attendees list**. If still ambiguous, flag as `ambiguous_owner` |
+    128:3. If the first name alone matches more than one attendee (e.g. two Priyas) → `owner = NULL`, flag `ambiguous_owner`, and keep
+    129:   `owner_raw = "Priya"` and the candidate list. These items show up in `list --flag ambiguous_owner` for manual fixing.
+    180:  owner_key     TEXT,               -- NULL = unassigned/ambiguous
+    208:  owner_candidates TEXT NOT NULL DEFAULT '[]',   -- JSON array (ambiguous owner)
+    234:- The CLI shows the first **6** hex chars. `done` accepts any unique prefix of 4 or more chars. An ambiguous prefix is an error
+    247:- Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+    249:  `orphaned` (G4). Only notes under the folder being ingested are affected (with `--no-recursive`, only its direct children),
+    250:  so ingesting a different folder orphans nothing. The report counts these as `removed`.
+    257:  Flags: 5 unassigned, 2 ambiguous_owner, 4 no_due, 1 unparsed_due
+    270:| `--owner TEXT` | Matches the person key, email, full name, or first name. An ambiguous first name prints the candidates and exits 2 |
+    274:| `--flag NAME` | e.g. `ambiguous_owner`, `orphaned` |
+    283:- Already done → prints a notice and exits 0. Unknown or ambiguous ID → exits 2.
+    286:1. Resolves the owner (same rules as `--owner`). An ambiguous or unknown owner → error, no draft.
+    488:3. `- [ ] Priya to …` in a note with two Priyas is flagged `ambiguous_owner` and is not assigned to either one.
+    506:| Q5 | Does `followup` also include items with `ambiguous_owner` whose candidates include this person? | No, they are excluded until resolved |
+    542:| REQ-PEOPLE-03 | An ambiguous first name → no owner, flag `ambiguous_owner`, candidates kept | §6, D9 |
+    563:| REQ-INGEST-04 | Items that lose all their sources are flagged `orphaned`, never deleted | §9.1 |
+    569:| REQ-LIST-01 | Filters: `--owner`, `--status`, `--due-before`, `--unassigned`, `--flag` | §9.2 |
+    570:| REQ-LIST-02 | Default view and sort order | §9.2 |
+    571:| REQ-LIST-03 | Table columns, overdue in red + `⚠` | §9.2 |
+    572:| REQ-LIST-04 | `--json` with `schema_version` | §9.2, §13.4 |
+    573:| REQ-LIST-05 | An ambiguous `--owner` prints the candidates and exits 2 | §9.2 |
+    574:| REQ-DONE-01 | `done <prefix>` marks the item done (`done_source=cli`) | §9.3 |
+    575:| REQ-DONE-02 | Already done → notice, exit 0. Unknown/ambiguous → exit 2 | §9.3 |
+    600:- `reopen <id>` and `assign <id> <owner>` commands (to fix ambiguous/unassigned items).
+
+  [tool: Bash] [Read list/done and JSON sections of root spec]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -n 225,300p spec/requirements.md; grep -n "13.4" -A40 spec/requirements.md | sed -n 1,60p
+  [tool: Bash] [Read test fixtures and CLI test style]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat tests/conftest.py tests/integration/conftest.py tests/unit/conftest.py && sed -n 1,80p tests/integration/test_cli_ingest.py && grep -n "date_order\|class Config" -A3 actiontrack/config.py | head -40
+  [result]:
+    ```
+    
+    - **`overdue` is derived, not stored**: `status = 'open' AND due_date IS NOT NULL AND due_date < today`.
+      Items with no due date are never overdue.
+    - Schema version is tracked with `PRAGMA user_version`, and migrations are applied on startup.
+    
+    ### 8.1 Item ID (D14)
+    - `id = sha1(owner_key or "∅" + "|" + task_norm)` for the first item of a dedup group. Fuzzy-merged items keep the ID of the
+      group's first-seen item.
+    - The CLI shows the first **6** hex chars. `done` accepts any unique prefix of 4 or more chars. An ambiguous prefix is an error
+      that lists the candidates.
+    - IDs are stable across re-ingest and a DB rebuild, as long as the canonical text does not change.
+    
+    ## 9. Commands
+    
+    Global options: `--db PATH`, `--config PATH`, `-v/--verbose` (repeatable), `-q/--quiet`, `--no-color`, `--debug`, `--version`, `-h/--help`.
+    Extra command: `actiontrack config show` (§13.6).
+    
+    ### 9.1 `actiontrack ingest <folder>`
+    - Recursively finds `*.md` files (non-recursive with `--no-recursive`).
+    - For each file, if the `sha256` is unchanged since the last ingest it is skipped (D12). Otherwise the file is parsed, and its old
+      `item_sources` rows are removed and re-inserted.
+    - Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+    - A note that was ingested before and is no longer in the folder is removed, together with its sources, so its items become
+      `orphaned` (G4). Only notes under the folder being ingested are affected (with `--no-recursive`, only its direct children),
+      so ingesting a different folder orphans nothing. The report counts these as `removed`.
+    - Never resets `status='done'` where `done_source='cli'`.
+    - All writes for one run happen in a single transaction per file, so a failure on one file does not corrupt the others.
+    - **Ingest report** (stdout, plus `--report-json PATH`):
+      ```
+      Scanned 34 files: 29 ingested, 2 unchanged, 3 skipped, 0 removed
+      Items: 112 found → 87 unique (19 exact merges, 6 fuzzy merges)
+      Flags: 5 unassigned, 2 ambiguous_owner, 4 no_due, 1 unparsed_due
+      Skipped:
+        notes/2026-10-03-standup.md   missing meeting date
+        notes/broken.md                invalid YAML frontmatter (line 4)
+        notes/retro-old.md             not valid UTF-8
+      Line warnings:
+        notes/2026-11-02-sync.md:41    malformed checkbox "-[ ] Rahul ..."
+      ```
+    ... [28 more lines]
+
+  [result]:
+    from __future__ import annotations
+    
+    from collections.abc import Iterator
+    from pathlib import Path
+    
+    import platformdirs
+    import pytest
+    
+    
+    @pytest.fixture(autouse=True)
+    def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
+        """Keep tests away from the real config/data dirs and from ACTIONTRACK_* / colour env vars."""
+        import os
+    
+        for name in list(os.environ):
+            if name.startswith("ACTIONTRACK_") or name in ("NO_COLOR", "FORCE_COLOR", "TTY_COMPATIBLE"):
+                monkeypatch.delenv(name, raising=False)
+        home = tmp_path / "platformdirs"
+        monkeypatch.setattr(
+            platformdirs, "user_config_dir", lambda *a, **k: str(home / "config" / "actiontrack")
+        )
+        monkeypatch.setattr(
+            platformdirs, "user_data_dir", lambda *a, **k: str(home / "data" / "actiontrack")
+        )
+        yield home
+    """Builders and fixtures shared by the integration tests: stored notes, sources and item groups."""
+    
+    from __future__ import annotations
+    
+    import sqlite3
+    from collections.abc import Iterator
+    from datetime import date, datetime
+    from pathlib import Path
+    from typing import Literal
+    
+    import pytest
+    
+    from actiontrack.dedup import make_item_id, normalize_task
+    from actiontrack.models import Flag, ItemGroup, NoteMeta, ParsedItem
+    from actiontrack.store.db import MEMORY, connect
+    ... [76 more lines]
+
+  [tool: Bash] [Inspect prior gap commit and CLI tests referencing stubs]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git show 1e5ef47 e09fe59 --stat && git show 1e5ef47 | head -60 && grep -n "not implemented\|list\b\|\"list\"\|done" tests/unit/core/test_cli.py | head -30 && sed -n 1,60p actiontrack/services/ingest.py
+  [result]:
+    commit 1e5ef472e067d85c3a1ab9537bffe99ce7010fde
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Thu Nov 26 00:03:50 2026 +0530
+    
+        M7: confirm gap G4 in the root spec
+        
+        - requirements.md §9.1: a note no longer in the folder is removed with its sources and its
+          items are orphaned; only notes under the ingested folder (direct children with
+          --no-recursive) are affected. The report example gains the `removed` count.
+        - plan.md: G4 marked resolved; M7 done in the status line.
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+     spec/plan.md         | 6 +++---
+     spec/requirements.md | 5 ++++-
+     2 files changed, 7 insertions(+), 4 deletions(-)
+    
+    commit e09fe597e44ad99f988bc39bee9c069028d6ea46
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Thu Nov 26 00:04:13 2026 +0530
+    
+        M7: link PR #7 on the status board
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+     spec/plan.md | 2 +-
+     1 file changed, 1 insertion(+), 1 deletion(-)
+    commit 1e5ef472e067d85c3a1ab9537bffe99ce7010fde
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Thu Nov 26 00:03:50 2026 +0530
+    
+        M7: confirm gap G4 in the root spec
+        
+        - requirements.md §9.1: a note no longer in the folder is removed with its sources and its
+          items are orphaned; only notes under the ingested folder (direct children with
+          --no-recursive) are affected. The report example gains the `removed` count.
+        - plan.md: G4 marked resolved; M7 done in the status line.
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+    ... [30 more lines]
+
+  [tool: Bash] [Check whether non-attendee owners land in people table]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n "upsert_many\|PeopleRepo" -B3 -A3 actiontrack/services/ingest.py; grep -n "derived\|not_attendee\|OWNER_NOT_ATTENDEE" actiontrack/parsing/people.py | head -20; cat spec/modules/M11-followup/spec.md | head -60
+  [result]:
+    23-from actiontrack.parsing.note_loader import load_note
+    24-from actiontrack.parsing.people import build_roster
+    25-from actiontrack.store.db import transaction
+    26:from actiontrack.store.repo import ItemFilter, ItemRepo, NoteRepo, PeopleRepo, SourceRepo
+    27-
+    28-LOGGER_NAME = "actiontrack.ingest"
+    29-_log = logging.getLogger(LOGGER_NAME)
+    --
+    215-    with transaction(conn):
+    216-        notes.upsert_ok(loaded, now=clock.now())
+    217-        SourceRepo(conn).replace_for_note(path, items)
+    218:        PeopleRepo(conn).upsert_many(roster.attendees)
+    219-    return warnings
+    220-
+    221-
+    3:Every person gets a key: their explicit email (lowercased), else the email derived from their
+    63:    derived = _try_derive_email(name, domain=domain) if last else None
+    69:        key=email or derived or f"name:{normalize_name(first)}",
+    70:        derived_email=derived,
+    95:            matches = [a for a in self.attendees if wanted in (a.email, a.derived_email)]
+    98:                    owner_raw, key=wanted, display=text, flags={Flag.OWNER_NOT_ATTENDEE}
+    111:            return self._result(owner_raw, flags={Flag.OWNER_NOT_ATTENDEE, Flag.UNASSIGNED})
+    131:            return self._result(owner_raw, flags={Flag.OWNER_NOT_ATTENDEE, Flag.UNASSIGNED})
+    139:            return self._result(owner_raw, flags={Flag.OWNER_NOT_ATTENDEE, Flag.UNASSIGNED})
+    142:        derived = _try_derive_email(text, domain=self._domain)
+    143:        if derived is None:
+    144:            return self._result(owner_raw, flags={Flag.OWNER_NOT_ATTENDEE, Flag.UNASSIGNED})
+    147:            key=derived,
+    149:            flags={Flag.OWNER_NOT_ATTENDEE},
+    196:    return {e.partition("@")[0] for e in (a.email, a.derived_email) if e}
+    # M11 — `followup` Command
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M2 (`derive_email`), M6, M8 (`resolve_owner_query`), M9, M10 |
+    | **Files** | `actiontrack/services/followup.py`, the `followup` command in `actiontrack/cli.py` |
+    | **REQ IDs** | REQ-FU-01, 02, 03, 05, 06 |
+    
+    ## 1. Purpose
+    ... [30 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I've read the M8 spec, the root requirements, and the store, dedup and CLI code M8 builds on. Before I write code, a few decisions are yours to make.
+
+  [tool: AskUserQuestion] {"questions": [{"question": "Gap G3 (open in the spec): should items flagged `orphaned` (their note line or file was removed) be hidden from the default `list` and only shown with `--flag orphaned`? This also decides whether M11 `followup` excludes them.", "header": "G3 orphaned", "multiSelect": false, "options": [{"label": "Hide by default (Recommended)", "description": "Confirm G3 as proposed: hidden from `list` unless `--flag orphaned`, excluded from followup. Root spec §9.2 updated and G3 marked ✅."}, {"label": "Always show", "description": "Orphaned items appear in the default list like a
+... [truncated, 1628 more chars]
+  [result]:
+    Your questions have been answered: "Gap G3 (open in the spec): should items flagged `orphaned` (their note line or file was removed) be hidden from the default `list` and only shown with `--flag orphaned`? This also decides whether M11 `followup` excludes them."="Hide by default (Recommended)", "New gap: an owner who isn't in a note's attendees but is written with a full name (`Vikram Rao to …`, G5) gets a derived key, but ingest only stores attendees in the `people` table. As a result, `list --owner Vikram` (and later `followup vikram`) says 'no person matches', even though the items are his. How should `--owner` handle this?"="Also match item owners (Recommended)", "Overdue marker: root spec §9.2 says the `⚠` appears 'when colour is off', but §13.4 and the M8 spec say it is always shown so colour is never the only signal. Which one?"="Always show ⚠ (Recommended)". You can now continue with these answers in mind.
+
+  [tool: Bash] [Check dates imports, stub test, people resolution]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -n 1,40p actiontrack/parsing/dates.py && sed -n 140,160p tests/unit/core/test_cli.py && grep -n "lazy\|CLI_08\|sys.modules" -r tests | head && sed -n 85,150p actiontrack/parsing/people.py && grep -n "def normalize_name" -A8 actiontrack/parsing/people.py
+  [result]:
+    """Due-phrase detection and due-date resolution (M3 spec).
+    
+    Relative expressions (weekdays, EOW, next week, ...) follow our own deterministic rules, anchored on
+    the meeting date. Only calendar dates such as `12 Dec` or `03/04/2027` go to `dateparser`.
+    """
+    
+    from __future__ import annotations
+    
+    import calendar
+    import re
+    from datetime import date, datetime, time, timedelta
+    from typing import Literal, NamedTuple
+    
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import DueResolution, Flag
+    
+    DateOrder = Literal["DMY", "MDY"]
+    
+    _WEEKDAY = (
+        r"mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?"
+        r"|sat(?:urday)?|sun(?:day)?"
+    )
+    _MONTH = (
+        r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
+        r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+    )
+    _WEEKDAY_INDEX = {d: i for i, d in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
+    
+    # The expression after a connector: up to the first `,` `;` `(` `)` or ` - `.
+    _EXPR = r"(?P<expr>(?:(?! - )[^,;()])+)"
+    _CONNECTOR = re.compile(
+        rf"\b(?:by|before|due(?:\s+on|\s+by)?|until|no\s+later\s+than|deadline:?)\s+{_EXPR}",
+        re.IGNORECASE,
+    )
+    # `on` only before something date-like, so `work on the deck` is not a due phrase.
+    _ON = re.compile(rf"\bon\s+(?=(?:{_WEEKDAY}|{_MONTH})\b|\d){_EXPR}", re.IGNORECASE)
+    _KEYWORD = re.compile(
+        r"\b(?:eod|eow|eom|end\s+of\s+(?:the\s+)?(?:day|week|month)|end\s+of\s+next\s+week"
+        r"|tomorrow|today|next\s+week|asap)\b",
+        re.IGNORECASE,
+    ... [50 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Creating the branch, then I'll look at `DedupResult` and the M6 repo tests so the `seeded_db` fixture can be built through the repos.
+
+  [tool: Bash] [Create branch; inspect DedupResult and repo tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git checkout -b feat/m8-list-done && grep -n "class DedupResult" -A12 actiontrack/dedup.py && grep -n "apply_groups\|DedupResult\|def test_.*find\|def test_.*query" tests/integration/store/test_repo.py | head -30 && sed -n 1,40p tests/integration/store/test_repo.py
+  [result]:
+    Switched to a new branch 'feat/m8-list-done'
+    46:class DedupResult:
+    47-    groups: tuple[ItemGroup, ...]
+    48-    decisions: tuple[MergeDecision, ...]
+    49-    orphaned_ids: tuple[str, ...]  # existing ids that matched no source
+    50-
+    51-
+    52-@dataclass
+    53-class _Group:
+    54-    identity: str | None  # owner key, or `?<candidates>` for an ambiguous owner (§4)
+    55-    canonical_norm: str
+    56-    norms: set[str]
+    57-    existing: ExistingItem | None = None
+    58-    members: list[ParsedItem] = field(default_factory=list)
+    12:from actiontrack.dedup import DedupResult, normalize_task
+    39:    ItemRepo(conn).apply_groups(DedupResult(groups=groups, decisions=(), orphaned_ids=orphaned))
+    175:def test_TC_M6_11_find(conn: sqlite3.Connection) -> None:
+    245:def test_query_owner_unassigned_and_flag(conn: sqlite3.Connection) -> None:
+    258:def test_query_rows_carry_sources(conn: sqlite3.Connection) -> None:
+    277:# --- items: apply_groups / existing ----------------------------------------------------------
+    311:def test_apply_groups_relinks_sources_and_upserts(conn: sqlite3.Connection) -> None:
+    326:def test_apply_groups_ignores_unknown_orphan(conn: sqlite3.Connection) -> None:
+    from __future__ import annotations
+    
+    import dataclasses
+    import json
+    import sqlite3
+    from datetime import date, datetime, timedelta
+    from pathlib import Path
+    
+    import pytest
+    
+    from actiontrack.clock import FixedClock
+    from actiontrack.dedup import DedupResult, normalize_task
+    from actiontrack.models import (
+        Attendee,
+        Flag,
+        ItemGroup,
+        OwnerResolution,
+        SkipReason,
+    ... [21 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the spec updates. First, I'll find where M6 describes `PeopleRepo.find`.
+
+  [tool: Bash] [Locate PeopleRepo.find in M6 spec]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n "find\|PeopleRepo" spec/modules/M6-store/spec.md spec/modules/M6-store/tests.md
+  [result]:
+    spec/modules/M6-store/spec.md:96:class PeopleRepo:
+    spec/modules/M6-store/spec.md:98:    def find(self, query: str) -> list[Person]               # key, email, full name, or first name (normalize_name), by key
+    spec/modules/M6-store/tests.md:17:| TC-M6-11 | People Priya Shah, Priya Nair, Rahul Mehta | `find("priya")`, `find("Priya Nair")`, `find("rahul.mehta@coditas.com")` | 2, 1, 1 results | REQ-STORE-01 |
+
+  [tool: Bash] [Update root and M6 specs for G3, G11, marker]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && python - <<'EOF'
+    from pathlib import Path
+    def sub(path, old, new):
+        p = Path(path); t = p.read_text(encoding="utf-8")
+        assert t.count(old) == 1, (path, old)
+        p.write_text(t.replace(old, new), encoding="utf-8")
+    
+    sub("spec/modules/M6-store/spec.md",
+    "    def find(self, query: str) -> list[Person]               # key, email, full name, or first name (normalize_name), by key",
+    "    def find(self, query: str) -> list[Person]               # key, email, full name, or first name (normalize_name), by key.\n                                                             # Also item owners missing from `people` (G11, added by M8)")
+    
+    sub("spec/requirements.md",
+    "| `--flag NAME` | e.g. `ambiguous_owner`, `orphaned` |",
+    "| `--flag NAME` | e.g. `ambiguous_owner`, `orphaned`. Orphaned items are hidden unless this is `--flag orphaned` (G3) |")
+    sub("spec/requirements.md",
+    "| `--owner TEXT` | Matches the person key, email, full name, or first name. An ambiguous first name prints the candidates and exits 2 |",
+    "| `--owner TEXT` | Matches the person key, email, full name, or first name, of an attendee or of an owner that only appears on items (a full name not in the attendees, G11). An ambiguous first name prints the candidates and exits 2 |")
+    sub("spec/requirements.md",
+    "- The default view shows all open items sorted by due date (nulls last), then owner.\n- Table columns: `ID`, `Owner`, `Task`, `Due`, `Status`, `Sources` (count). **Overdue rows are shown in red**, with a `⚠` marker\n  when colour is off.",
+    "- The default view shows all open items, except orphaned ones (G3), sorted by due date (nulls last), then owner.\n- Table columns: `ID`, `Owner`, `Task`, `Due`, `Status`, `Src` (source count). **Overdue rows are shown in red**, and their status\n  always reads `⚠ overdue`, so colour is never the only signal.")
+    EOF
+    grep -n "Orphaned and ambiguous\|G3" spec/modules/M11-followup/spec.md spec/requirements.md | head
+  [result]:
+    spec/modules/M11-followup/spec.md:34:| 2 | `ItemRepo.query(ItemFilter(owner_keys=(person.key,), status="open"))`. Orphaned and ambiguous items are excluded (G3, Q5) (REQ-FU-02) | None → stderr `No open items for <name>. No draft created.`, exit 0 |
+    spec/modules/M11-followup/spec.md:50:Q5 (ambiguous items excluded) and G3 (orphaned excluded) need confirming.
+    spec/requirements.md:274:| `--flag NAME` | e.g. `ambiguous_owner`, `orphaned`. Orphaned items are hidden unless this is `--flag orphaned` (G3) |
+    spec/requirements.md:277:- The default view shows all open items, except orphaned ones (G3), sorted by due date (nulls last), then owner.
+
+  [tool: Bash] [Update followup spec, plan gaps G3 and G11]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && python - <<'EOF'
+    from pathlib import Path
+    def sub(path, old, new):
+        p = Path(path); t = p.read_text(encoding="utf-8")
+        assert t.count(old) == 1, (path, old)
+        p.write_text(t.replace(old, new), encoding="utf-8")
+    
+    sub("spec/requirements.md",
+    "2. Selects that owner's **open + overdue** items. If there are none → message, no draft.",
+    "2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3). If there are none → message, no draft.")
+    sub("spec/modules/M11-followup/spec.md",
+    "Q5 (ambiguous items excluded) and G3 (orphaned excluded) need confirming.",
+    "Q5 (ambiguous items excluded) needs confirming. G3 (orphaned excluded) was confirmed with M8.")
+    
+    sub("spec/plan.md",
+    "(root spec §6, §8), and G4 with M7 (root spec §9.1).",
+    "(root spec §6, §8), G4 with M7 (root spec §9.1), and G3 and G11 with M8 (root spec §9.2, §9.4).")
+    sub("spec/plan.md",
+    "| G3 | Are `orphaned` items shown in `list` and included in `followup`? |",
+    "| G3 ✅ | Are `orphaned` items shown in `list` and included in `followup`? |")
+    sub("spec/plan.md",
+    "| G10 | The same person appears with an explicit email in one note and a derived email in another | Known limitation: two keys. Future work: `people.yaml` aliases | M2 |",
+    "| G10 | The same person appears with an explicit email in one note and a derived email in another | Known limitation: two keys. Future work: `people.yaml` aliases | M2 |\n| G11 ✅ | An owner written as a full name who is not an attendee (G5) gets a derived key, but only attendees are stored in `people`, so `--owner` / `followup` could not find them | `PeopleRepo.find` also matches item owners missing from `people` (name = `owner_display`, email = the key if it is an email). Read-only: no schema or ingest change | M6, M8, M11 |")
+    EOF
+  [result]:
+    (Bash completed with no output)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the M8 module spec itself (interface gains `owner_raw`, owner matching, gaps resolved).
+
+  [tool: Bash] [Update the M8 module spec]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && python - <<'EOF'
+    from pathlib import Path
+    def sub(path, old, new):
+        p = Path(path); t = p.read_text(encoding="utf-8")
+        assert t.count(old) == 1, (path, old)
+        p.write_text(t.replace(old, new), encoding="utf-8")
+    P = "spec/modules/M8-list-done/spec.md"
+    sub(P, "| **Depends on** | M3 (`parse_user_date`), M5 (`resolve_prefix`, `shortest_unique_prefixes`), M6 |",
+           "| **Depends on** | M3 (`parse_user_date`), M5 (`resolve_prefix`, `shortest_unique_prefixes`), M6 (`PeopleRepo.find` gains item owners, G11) |")
+    sub(P, "    id: str; short_id: str; owner_key: str | None; owner_display: str | None\n",
+           "    id: str; short_id: str; owner_key: str | None; owner_display: str | None; owner_raw: str | None\n")
+    sub(P, "`resolve_owner_query` is reused by M11.",
+           "`resolve_owner_query` is reused by M11. It matches through `PeopleRepo.find`, which covers attendees and, since M8, owners\n"
+           "that only appear on items: a full name that is not an attendee gets a derived key (G5) but no `people` row (G11).\n"
+           "`owner_raw` is carried so the table can show an ambiguous owner as typed.")
+    sub(P, "| `--owner` + `--unassigned` | `UserInputError` (contradictory) |",
+           "| `--owner` + `--unassigned` | `UserInputError` (contradictory) |\n| (no `--flag orphaned`) | Orphaned items are hidden (G3) |")
+    sub(P, "- The footer on stderr reads `N items (M overdue)`, suppressed by `-q`.\n- No results → `No items match.` on stderr, exit 0.",
+           "- The footer on stderr reads `N items (M overdue)`, suppressed by `-q`.\n- No results → `No items match.` on stderr (suppressed by `-q`), exit 0.\n- Owner, task and other note text are printed literally, never as rich markup.")
+    sub(P, '"filters": {"owner": null, "status": "open", "due_before": null, "unassigned": false, "flag": null},',
+           '"filters": {"owner": null, "status": "open", "due_before": null, "unassigned": false, "flag": null},  // as typed; status defaulted')
+    sub(P, "  - Already done → stderr `a3f91c is already done.`, exit 0.",
+           "  - Already done → stderr `a3f91c is already done.`, exit 0.\n  - The `(owner)` suffix is left out when the item has no owner.")
+    sub(P, "## 6. Open questions\nG3 (orphaned hidden by default) needs confirming.",
+           "## 6. Open questions\nNone. G3 (orphaned hidden by default) and G11 (item owners are matchable) were confirmed with M8.")
+    EOF
+    grep -n "Status" spec/modules/M8-list-done/spec.md | head -2
+  [result]:
+    5:| **Status** | Draft |
+    51:| ID | Owner | Task | Due | Status | Src |
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Adding a test case for G11 to the M8 test list.
+
+  [tool: Bash] [Add TC-M8-25 and update tasks]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && python - <<'EOF'
+    from pathlib import Path
+    p = Path("spec/modules/M8-list-done/tests.md"); t = p.read_text(encoding="utf-8")
+    old = "Priya Shah, Priya Nair, Rahul Mehta; 8 items covering open/overdue/done/no-due/unassigned/ambiguous/orphaned. `FixedClock(2026-11-25)`."
+    new = ("Priya Shah, Priya Nair, Rahul Mehta (attendees) and Vikram Rao (an owner who is not an attendee, G11); 9 items covering\n"
+           "open/overdue/done/no-due/unassigned/ambiguous/orphaned. `FixedClock(2026-11-25)`.")
+    assert old in t; t = t.replace(old, new)
+    t = t.rstrip("\n") + "\n| TC-M8-25 | seeded_db | `list --owner vikram` | Vikram Rao's item (an owner with no `people` row) | REQ-LIST-01 (G11) |\n"
+    p.write_text(t, encoding="utf-8")
+    p = Path("spec/modules/M8-list-done/tasks.md"); t = p.read_text(encoding="utf-8")
+    t = t.replace("TC-M8-01 … TC-M8-24.", "TC-M8-01 … TC-M8-25.").replace("(0 / 1 / many with candidate hint). → TC-M8-04 … 07", "(0 / 1 / many with candidate hint, item owners via `PeopleRepo.find`, G11). → TC-M8-04 … 07, 25")
+    p.write_text(t, encoding="utf-8")
+    EOF
+    git diff --stat
+  [result]:
+    spec/modules/M11-followup/spec.md  |  2 +-
+     spec/modules/M6-store/spec.md      |  3 ++-
+     spec/modules/M8-list-done/spec.md  | 17 +++++++++++------
+     spec/modules/M8-list-done/tasks.md |  4 ++--
+     spec/modules/M8-list-done/tests.md |  4 +++-
+     spec/plan.md                       |  5 +++--
+     spec/requirements.md               | 12 ++++++------
+     7 files changed, 28 insertions(+), 19 deletions(-)
+
+  [tool: Bash] [Commit spec updates]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git add spec && git commit -q -F - <<'EOF'
+    M8: confirm gaps G3 and G11, settle the overdue marker in the specs
+    
+    - requirements.md §9.2: orphaned items are hidden unless --flag orphaned (G3); --owner also
+      matches owners that only appear on items (G11); the overdue status always reads `⚠ overdue`
+      and the source column is `Src`. §9.4: followup excludes orphaned items (G3).
+    - plan.md: G3 marked resolved, new gap G11 recorded and resolved.
+    - M6 spec: PeopleRepo.find also covers item owners missing from `people`.
+    - M8 spec/tests/tasks: ItemView.owner_raw, G3/G11 resolved, TC-M8-25 added.
+    - M11 spec: G3 no longer open.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git log --oneline -1
+  [result]:
+    3534fff M8: confirm gaps G3 and G11, settle the overdue marker in the specs
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Specs committed. Now the `seeded_db` fixture (T8.1), built through the M6 repos.
+
+  [tool: Bash] [Look at existing repo test helpers]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -n 40,80p tests/integration/store/test_repo.py && sed -n 170,200p tests/integration/store/test_repo.py
+  [result]:
+    def ids(rows: list) -> list[str]:  # type: ignore[type-arg]
+        return [r.id for r in rows]
+    
+    
+    def stored(conn: sqlite3.Connection, *groups: ItemGroup) -> None:
+        store_sources(conn, *(s for g in groups for s in g.sources))
+        apply(conn, *groups)
+    
+    
+    def attendee(full: str, email: str | None, *, key: str | None = None) -> Attendee:
+        first, _, last = full.partition(" ")
+        derived = f"{first}.{last}@coditas.com".lower() if last else None
+        return Attendee(
+            full, first, last or None, email, key or email or derived or f"name:{first}", derived
+        )
+    
+    
+    # --- notes & sources -------------------------------------------------------------------------
+    
+    
+    def test_TC_M6_08_sources_round_trip(conn: sqlite3.Connection) -> None:
+        ambiguous = OwnerResolution(
+            None, None, "Priya", frozenset({Flag.AMBIGUOUS_OWNER}), (RAHUL, PRIYA)
+        )
+        items = [
+            src(PRIYA, "Send quote", "2026-11-18", line=3, due="2026-11-20", path="n.md"),
+            src(ambiguous, "Book room", "2026-11-18", line=5, due_raw="ASAP", path="n.md"),
+            src(None, "Ship v2", "2026-11-18", line=9, checked=True, path="n.md"),
+        ]
+        items = [dataclasses.replace(i, note_title="Weekly") for i in items]
+        store_sources(conn, *items)
+        repo = SourceRepo(conn)
+        assert repo.all() == items
+        assert repo.count() == 3
+        assert repo.all()[1].owner.candidates == (RAHUL, PRIYA)  # order kept, not sorted
+    
+    
+    def test_due_span_is_not_stored(conn: sqlite3.Connection) -> None:
+        i = src(PRIYA, "Send quote", "2026-11-18", due="2026-11-20")
+        v = people.get("name:Vikram")
+    ... [30 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now writing the fixture into [tests/integration/conftest.py](tests/integration/conftest.py).
+
+  [tool: Bash] [Add seeded_db fixture to integration conftest]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/integration/conftest.py"); t = p.read_text(encoding="utf-8")
+    t = t.replace('''from actiontrack.dedup import make_item_id, normalize_task
+    from actiontrack.models import Flag, ItemGroup, NoteMeta, ParsedItem
+    from actiontrack.store.db import MEMORY, connect
+    from actiontrack.store.repo import NoteRepo, SourceRepo
+    from tests.unit.conftest import owner, src
+    
+    __all__ = ["add_note", "group", "owner", "src", "store_sources"]
+    ''', '''from actiontrack.dedup import DedupResult, make_item_id, normalize_task
+    from actiontrack.models import Attendee, Flag, ItemGroup, NoteMeta, OwnerResolution, ParsedItem
+    from actiontrack.store.db import MEMORY, connect
+    from actiontrack.store.repo import ItemRepo, NoteRepo, PeopleRepo, SourceRepo
+    from tests.unit.conftest import owner, src
+    
+    __all__ = ["SEEDED", "add_note", "group", "owner", "seed", "src", "store_sources"]
+    ''')
+    t += '''
+    
+    # --- seeded_db (M8) --------------------------------------------------------------------------
+    
+    PRIYA_SHAH = "priya.shah@coditas.com"
+    PRIYA_NAIR = "priya.nair@coditas.com"
+    RAHUL = "rahul.mehta@coditas.com"
+    VIKRAM = "vikram.rao@coditas.com"  # an owner who is not an attendee: no `people` row (G11)
+    _ORPHAN_NOTE = "notes/2026-11-02-old.md"
+    
+    
+    def _person(key: str, name: str, flags: frozenset[Flag] = frozenset()) -> OwnerResolution:
+    ... [47 more lines]
+  [result]:
+    (Bash completed with no output)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the service tests ([tests/integration/test_query.py](tests/integration/test_query.py)).
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_query.py  (7021 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_query.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the CLI tests ([tests/integration/test_cli_list_done.py](tests/integration/test_cli_list_done.py)).
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_list_done.py  (12577 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_list_done.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Small cleanup to the CLI test file: drop the stray last test, and make the forced-colour console deterministic on Windows.
+
+  [tool: Bash] [Tidy CLI tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/integration/test_cli_list_done.py"); t = p.read_text(encoding="utf-8")
+    t = t.replace('''
+    
+    def test_make_item_id_is_hex() -> None:  # the fixture's hand-made ids must look like real ones
+        assert len(make_item_id(None, "x")) == 40
+    ''', "\n")
+    t = t.replace("from actiontrack.dedup import make_item_id\n", "")
+    old_15 = t[t.index("def test_TC_M8_15"):t.index("def test_TC_M8_16")]
+    new_15 = '''def test_TC_M8_15_overdue_row_red(seeded: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        from actiontrack import console
+    
+        real = console.Console
+    
+        def forced(*args: Any, **kwargs: Any) -> Console:
+            # A terminal with plain ANSI colours, also on Windows.
+            kwargs.update(force_terminal=True, color_system="standard", legacy_windows=False)
+            return real(*args, **kwargs)
+    
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(console, "Console", forced)
+            assert run(["list"]) == 0
+        lines = capsys.readouterr().out.splitlines()
+        red = "\\x1b[31m"
+        assert red in next(line for line in lines if "send the revised quote" in line)
+        assert red not in next(line for line in lines if "draft the agenda" in line)
+    
+    
+    '''
+    ... [5 more lines]
+  [result]:
+    (Bash completed with no output)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Updating the M0 stub test (only `followup` is still a stub) and adding an M6 repo test for the item-owner lookup.
+
+  [tool: Bash] [Update stub test, add repo test, run new tests (expect red)]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/unit/core/test_cli.py"); t = p.read_text(encoding="utf-8")
+    old = '@pytest.mark.parametrize("args", [["list"], ["done", "a3f"], ["followup", "priya"]])\n'
+    assert old in t
+    t = t.replace(old, '@pytest.mark.parametrize("args", [["followup", "priya"]])\n')
+    p.write_text(t, encoding="utf-8")
+    
+    p = Path("tests/integration/store/test_repo.py"); t = p.read_text(encoding="utf-8")
+    anchor = "# --- items: query ----"
+    add = '''def test_find_item_owners(conn: sqlite3.Connection) -> None:
+        """G11: owners that only appear on items (no `people` row) are found too."""
+        PeopleRepo(conn).upsert_many([attendee("Rahul Mehta", None)])
+        vikram = OwnerResolution(
+            "vikram.rao@coditas.com", "Vikram Rao", "Vikram Rao", frozenset({Flag.OWNER_NOT_ATTENDEE}), ()
+        )
+        stored(
+            conn,
+            group(src(vikram, "Send invoice", "2026-11-18", line=1)),
+            group(src(vikram, "Book cab", "2026-11-18", line=2)),
+            group(src(RAHUL, "Book room", "2026-11-18", line=3), owner_display="Rahul M"),
+        )
+        people = PeopleRepo(conn)
+        found = people.find("vikram")
+        assert found == [Person("vikram.rao@coditas.com", "Vikram Rao", "Vikram", "vikram.rao@coditas.com")]
+        assert people.find("Vikram Rao") == found
+        assert people.find("vikram.rao@coditas.com") == found
+        assert [p.full_name for p in people.find("rahul")] == ["Rahul Mehta"]  # the people row wins
+    
+    
+    ... [7 more lines]
+  [result]:
+    E   ModuleNotFoundError: No module named 'actiontrack.services.query'
+    =========================== short test summary info ===========================
+    ERROR tests/integration/test_query.py
+    !!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+    1 error in 0.81s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Tests are red as expected. Now the implementation, starting with `PeopleRepo.find` (G11).
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\repo.py
+  old:     def find(self, query: str) -> list[Person]:
+        """People whose key, email, full name or first name matches `query` (normalized)."""
+        q = normalize_name(query)
+        if not q:
+            return []
+        return [
+            p
+            for p in self._all()
+            if q in (
+... [truncated, 449 more chars]
+  new:     def find(self, query: str) -> list[Person]:
+        """People whose key, email, full name or first name matches `query` (normalized).
+
+        Item owners with no `people` row (a full name that is not an attendee, G5) count as
+        people too, so their items can still be found by name (G11).
+
+... [truncated, 1255 more chars]
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\repo.py has been updated successfully.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the service, [actiontrack/services/query.py](actiontrack/services/query.py).
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\services\query.py  (4376 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\services\query.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the CLI commands, replacing the M0 stubs.
+
+  [tool: Bash] [Implement list/done CLI and run tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && python - <<'EOF'
+    from pathlib import Path
+    p = Path("actiontrack/cli.py"); t = p.read_text(encoding="utf-8")
+    def sub(old, new):
+        global t
+        assert t.count(old) == 1, old
+        t = t.replace(old, new)
+    
+    sub("from dataclasses import dataclass\nfrom pathlib import Path\nfrom typing import Annotated, Any\n",
+        "from dataclasses import dataclass\nfrom enum import StrEnum\nfrom pathlib import Path\nfrom typing import TYPE_CHECKING, Annotated, Any\n")
+    sub("from rich.table import Table\n", "from rich.table import Table\nfrom rich.text import Text\n")
+    sub("from actiontrack.models import JSON_SCHEMA_VERSION, to_jsonable\n",
+        "from actiontrack.models import JSON_SCHEMA_VERSION, Flag, to_jsonable\n\n"
+        "if TYPE_CHECKING:\n    from actiontrack.services.query import ItemView\n")
+    sub('''CONTEXT_SETTINGS: dict[str, Any] = {"help_option_names": ["-h", "--help"]}
+    ''', '''CONTEXT_SETTINGS: dict[str, Any] = {"help_option_names": ["-h", "--help"]}
+    NO_VALUE = "—"
+    
+    
+    class ListStatus(StrEnum):
+        OPEN = "open"
+        DONE = "done"
+        OVERDUE = "overdue"
+    ''')
+    
+    sub('''    @app.command("list")
+        def list_items() -> None:
+            """List action items.
+    
+            By default shows open items sorted by due date, then owner.
+    ... [89 more lines]
+  [result] (error):
+    Exit code 2
+    /usr/bin/bash: -c: line 134: unexpected EOF while looking for matching `''
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The shell heredoc tripped on quoting. I'll write the patch script to the scratchpad and run it from there.
+
+  [tool: Bash] [Confirm cli.py untouched]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git diff --stat actiontrack/cli.py; echo "scratch: $(cygpath -u 'C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\702b62e6-f52e-4636-84e6-2ca9a59935a3\scratchpad' 2>/dev/null)"
+  [result]:
+    scratch: /tmp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/702b62e6-f52e-4636-84e6-2ca9a59935a3/scratchpad
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+`cli.py` is unchanged. I'll apply the edits with the Edit tool instead.
+
+  [tool: Read] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  [result]:
+    1	"""Typer app: argument parsing, output formatting and exception → exit-code mapping only.
+    2	
+    3	Heavy dependencies (dateparser, rapidfuzz, mcp, jinja2) must only be imported inside command
+    4	functions, never at module level here or in anything imported from here (REQ-CLI-08).
+    5	"""
+    6	
+    7	from __future__ import annotations
+    8	
+    9	import json
+    10	import logging
+    11	import os
+    12	import sys
+    13	import traceback
+    14	from collections.abc import Mapping, Sequence
+    15	from dataclasses import dataclass
+    16	from pathlib import Path
+    17	from typing import Annotated, Any
+    18	
+    19	import typer
+    20	from rich.console import Console
+    21	from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+    22	from rich.table import Table
+    23	
+    24	# Typer vendors Click; its ClickException (usage errors, bad parameters) is not re-exported.
+    25	from typer._click.exceptions import ClickException
+    26	
+    27	from actiontrack import __version__
+    28	from actiontrack.clock import Clock, clock_from_env
+    29	from actiontrack.config import Config, load_config, settings_view
+    30	from actiontrack.console import Output, configure_stdio_utf8, make_output
+    31	from actiontrack.errors import ActionTrackError, ExitCode, FatalError, UserInputError
+    32	from actiontrack.models import JSON_SCHEMA_VERSION, to_jsonable
+    33	
+    34	PROG_NAME = "actiontrack"
+    35	DEBUG_ENV = "ACTIONTRACK_DEBUG"
+    36	CONTEXT_SETTINGS: dict[str, Any] = {"help_option_names": ["-h", "--help"]}
+    37	
+    38	
+    39	@dataclass
+    40	class AppContext:
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old: from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
+from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+from rich.table import Table
+  new: from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any
+
+import typer
+from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+from rich.table import Table
+from rich.tex
+... [1 more lines]
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old: from actiontrack.models import JSON_SCHEMA_VERSION, to_jsonable
+
+PROG_NAME = "actiontrack"
+DEBUG_ENV = "ACTIONTRACK_DEBUG"
+CONTEXT_SETTINGS: dict[str, Any] = {"help_option_names": ["-h", "--help"]}
+  new: from actiontrack.models import JSON_SCHEMA_VERSION, Flag, to_jsonable
+
+if TYPE_CHECKING:
+    from actiontrack.services.query import ItemView
+
+PROG_NAME = "actiontrack"
+DEBUG_ENV = "ACTIONTRACK_DEBUG"
+CONTEXT_SETTINGS: dict[str, Any] = {"help_option_names": ["-h", "--help"]}
+NO_VALUE = "—"
+
+... [3 more lines]
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old:     @app.command("list")
+    def list_items() -> None:
+        """List action items.
+
+        By default shows open items sorted by due date, then owner.
+
+        \b
+        Examples:
+          actiontrack list
+          actiontrack list --owner priya --status overdue
+... [2 more lines]
+  new:     @app.command("list")
+    def list_items(
+        ctx: typer.Context,
+        owner: Annotated[
+            str | None,
+            typer.Option(
+                "--owner", help="Person key, email, full or first name.", show_default=False
+            ),
+        ] = None,
+        status: Annotated
+... [1 more lines]
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old: class _RichProgress:
+  new: def _list(
+    app_ctx: AppContext,
+    *,
+    owner: str | None,
+    status: str | None,
+    due_before: str | None,
+    unassigned: bool,
+    flag: str | None,
+    as_json: bool,
+) -> None:
+... [5 more lines]
+  [tool: Bash] [Run the M8 and affected tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python -m pytest -q tests/integration/test_query.py tests/integration/test_cli_list_done.py tests/integration/store/test_repo.py tests/unit/core/test_cli.py 2>&1 | tail -40
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+
+  [result]:
+    ........................................................................ [ 68%]
+    .................................                                        [100%]
+    105 passed in 7.20s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All 105 pass. Now the full quality gate: the whole suite with coverage, ruff, and mypy.
+
+  [tool: Bash] [Run full suite with coverage, ruff, mypy]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python -m pytest -q --cov=actiontrack --cov-report=term-missing -m "" 2>&1 | grep -E "passed|failed|error|query|cli.py|repo.py|TOTAL"; .venv/Scripts/ruff check . ; .venv/Scripts/ruff format --check . ; .venv/Scripts/mypy 2>&1 | tail -3
+  [result]:
+    actiontrack\cli.py                     208      3    99%   91, 523-524
+    actiontrack\errors.py                   21      0   100%
+    actiontrack\services\query.py           72      0   100%
+    actiontrack\store\repo.py              210      0   100%
+    TOTAL                                 1753     17    99%
+    501 passed, 1 skipped in 36.72s
+    E501 Line too long (102 > 100)
+     --> actiontrack\services\query.py:1:101
+      |
+    1 | """The `list` and `done` use cases: filtered views of stored items, and marking one done (M8 spec)."""
+      |                                                                                                     ^^
+    2 |
+    3 | from __future__ import annotations
+      |
+    
+    E501 Line too long (102 > 100)
+       --> tests\integration\store\test_repo.py:192:101
+        |
+    190 |     PeopleRepo(conn).upsert_many([attendee("Rahul Mehta", None)])
+    191 |     vikram = OwnerResolution(
+    192 |         "vikram.rao@coditas.com", "Vikram Rao", "Vikram Rao", frozenset({Flag.OWNER_NOT_ATTENDEE}), ()
+        |                                                                                                     ^^
+    193 |     )
+    194 |     stored(
+        |
+    
+    E501 Line too long (104 > 100)
+       --> tests\integration\store\test_repo.py:202:101
+        |
+    200 |     people = PeopleRepo(conn)
+    201 |     found = people.find("vikram")
+    202 |     assert found == [Person("vikram.rao@coditas.com", "Vikram Rao", "Vikram", "vikram.rao@coditas.com")]
+        |                                                                                                     ^^^^
+    203 |     assert people.find("Vikram Rao") == found
+    204 |     assert people.find("vikram.rao@coditas.com") == found
+        |
+    
+    E501 Line too long (109 > 100)
+      --> tests\integration\test_cli_list_done.py:61:101
+       |
+    ... [56 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All 501 tests pass, coverage is 99%. Next I'll fix the lint and type nits.
+
+  [tool: Bash] [Fix lint/type issues and re-check]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -i 's/v.status == ListStatus.OVERDUE/v.status == "overdue"/' actiontrack/cli.py && sed -i '1s/.*/"""The `list` and `done` use cases: filtered views of stored items, and marking one done (M8)."""/' actiontrack/services/query.py && python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/integration/test_cli_list_done.py"); t = p.read_text(encoding="utf-8")
+    old = '''    shown = list(rows(captured.out))
+        assert shown == [short(n) for n in
+                         ("quote", "venue", "projector", "budget", "agenda", "invoice", "contract")]  # fmt: skip
+    '''
+    new = '''    expected = ("quote", "venue", "projector", "budget", "agenda", "invoice", "contract")
+        assert list(rows(captured.out)) == [short(n) for n in expected]
+    '''
+    assert old in t; p.write_text(t.replace(old, new), encoding="utf-8")
+    EOF
+    .venv/Scripts/ruff format tests/integration && .venv/Scripts/ruff check . && .venv/Scripts/ruff format --check . && .venv/Scripts/mypy
+  [result] (error):
+    Exit code 1
+    3 files reformatted, 6 files left unchanged
+    All checks passed!
+    72 files already formatted
+    actiontrack\services\query.py:84: error: Redundant cast to "Literal['open', 'done', 'overdue']"  [redundant-cast]
+    Found 1 error in 1 file (checked 21 source files)
+
+  [tool: Bash] [Drop redundant cast and rerun the gate]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -i 's/status=cast(Status, status or "open"),/status=status or "open",/; s/from typing import Literal, cast/from typing import Literal/' actiontrack/services/query.py && .venv/Scripts/mypy && .venv/Scripts/ruff check . && .venv/Scripts/ruff format --check . && .venv/Scripts/python -m pytest -q -m "" --cov=actiontrack 2>&1 | grep -E "passed|failed|query|TOTAL"
+  [result]:
+    Success: no issues found in 21 source files
+    All checks passed!
+    72 files already formatted
+    actiontrack\services\query.py           72      0   100%
+    TOTAL                                 1753     17    99%
+    501 passed, 1 skipped in 29.71s
+    [This command modified 1 file you've previously read: actiontrack\services\query.py. Call Read before editing.]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The gate is clean. Next I'll smoke-test against a real ingest of the fixture notes.
+
+  [tool: Bash] [Smoke-test ingest, list and done end to end]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && export ACTIONTRACK_DB="$TEMP/m8smoke.sqlite" ACTIONTRACK_TODAY=2026-11-25 COLUMNS=140 && rm -f "$ACTIONTRACK_DB" && .venv/Scripts/actiontrack -q ingest tests/fixtures/notes/ingest_basic >/dev/null && .venv/Scripts/actiontrack --no-color list; .venv/Scripts/actiontrack list --owner priya; echo "exit=$?"; ID=$(.venv/Scripts/actiontrack list --json | .venv/Scripts/python -c "import json,sys; print(json.load(sys.stdin)['items'][0]['short_id'])"); .venv/Scripts/actiontrack done $ID; .venv/Scripts/actiontrack done $ID; rm -f "$ACTIONTRACK_DB"*
+  [result]:
+    ┌────────┬─────────────┬────────────────────────────────┬────────────┬───────────┬─────┐
+    │ ID     │ Owner       │ Task                           │ Due        │ Status    │ Src │
+    ├────────┼─────────────┼────────────────────────────────┼────────────┼───────────┼─────┤
+    │ a33ae0 │ Priya Shah  │ update the pricing sheet       │ 2026-11-10 │ ⚠ overdue │ 1   │
+    │ a8dc95 │ Priya Shah  │ send the revised quote to Acme │ 2026-11-13 │ ⚠ overdue │ 2   │
+    │ 70424a │ Rahul Mehta │ order new laptops              │ 2026-11-20 │ ⚠ overdue │ 1   │
+    │ 5f5979 │ Anita Desai │ send the newsletter            │ 2026-11-21 │ ⚠ overdue │ 1   │
+    │ b9d105 │ Priya Shah  │ prepare the demo script        │ 2026-11-24 │ ⚠ overdue │ 1   │
+    │ d7b536 │ Priya Shah  │ plan the team lunch            │ 2026-11-27 │ open      │ 1   │
+    │ 296364 │ —           │ renew the domain               │ —          │ open      │ 1   │
+    │ dc3b7a │ —           │ Check the projector            │ —          │ open      │ 1   │
+    │ 697d84 │ Anita Desai │ draft the hiring plan          │ —          │ open      │ 1   │
+    │ 84079d │ Anita Desai │ review vendor contracts        │ —          │ open      │ 1   │
+    │ 23f3c8 │ Rahul Mehta │ book the venue for the offsite │ —          │ open      │ 2   │
+    │ 78de1d │ Rahul Mehta │ share the onboarding docs      │ —          │ open      │ 1   │
+    └────────┴─────────────┴────────────────────────────────┴────────────┴───────────┴─────┘
+    12 items (5 overdue)
+    ┌────────┬────────────┬────────────────────────────────┬────────────┬───────────┬─────┐
+    │ ID     │ Owner      │ Task                           │ Due        │ Status    │ Src │
+    ├────────┼────────────┼────────────────────────────────┼────────────┼───────────┼─────┤
+    │ a33ae0 │ Priya Shah │ update the pricing sheet       │ 2026-11-10 │ ⚠ overdue │ 1   │
+    │ a8dc95 │ Priya Shah │ send the revised quote to Acme │ 2026-11-13 │ ⚠ overdue │ 2   │
+    │ b9d105 │ Priya Shah │ prepare the demo script        │ 2026-11-24 │ ⚠ overdue │ 1   │
+    │ d7b536 │ Priya Shah │ plan the team lunch            │ 2026-11-27 │ open      │ 1   │
+    └────────┴────────────┴────────────────────────────────┴────────────┴───────────┴─────┘
+    4 items (3 overdue)
+    exit=0
+    ✓ a33ae0  update the pricing sheet  (Priya Shah)
+    a33ae0 is already done.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+End to end it works: overdue rows, single-person filter, `done`, and the second `done` gives the notice. Now I'll tick the tasks and update the status board.
+
+  [tool: Bash] [Tick M8 tasks and update status board]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -i 's/^- \[ \] \*\*T8\./- [x] **T8./' spec/modules/M8-list-done/tasks.md && sed -i 's/| \*\*Status\*\* | In progress. M0, M1, M2, M3, M4, M5, M6 and M7 done |/| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7 and M8 done |/; s/^| M8 | Draft | ☐ | ☐ | ☐ | — |/| M8 | Draft | ☑ | ☑ | ☑ | — |/' spec/plan.md && grep -n "M8 |\|Status\*\*" spec/plan.md && grep -c "\[x\]" spec/modules/M8-list-done/tasks.md && git status --short
+  [result]:
+    6:| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7 and M8 done |
+    75:| 6 | M8, then M11 | M11 reuses the owner query from M8 |
+    90:| M8 | Draft | ☑ | ☑ | ☑ | — |
+    9
+     M actiontrack/cli.py
+     M actiontrack/store/repo.py
+     M spec/modules/M8-list-done/tasks.md
+     M spec/plan.md
+     M tests/integration/conftest.py
+     M tests/integration/store/test_repo.py
+     M tests/unit/core/test_cli.py
+    ?? actiontrack/services/query.py
+    ?? tests/integration/test_cli_list_done.py
+    ?? tests/integration/test_query.py
+
+  [tool: Bash] [Commit M8 implementation and check remote]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git add -A actiontrack tests spec && git commit -q -F - <<'EOF'
+    M8: list and done commands (filters, table/JSON output, prefix done)
+    
+    - services/query.py: ItemView, resolve_owner_query (0 / 1 / many with candidates),
+      list_items (default open, contradiction check, --due-before via parse_user_date, orphaned
+      hidden unless --flag orphaned), mark_done (prefix resolution, done_source=cli).
+    - store/repo.py: PeopleRepo.find also matches item owners with no people row (G11).
+    - cli.py: real `list` (rich table with red rows + `⚠ overdue`, stderr footer, JSON schema v1)
+      and `done` commands replace the M0 stubs.
+    - tests: seeded_db fixture built through the repos; TC-M8-01 … 25.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git log --oneline -3 && git remote -v | head -2 && gh pr list --state all --limit 2
+  [result]:
+    warning: in the working copy of 'actiontrack/cli.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M8-list-done/tasks.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/services/query.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/test_query.py', LF will be replaced by CRLF the next time Git touches it
+    2a30ce2 M8: list and done commands (filters, table/JSON output, prefix done)
+    3534fff M8: confirm gaps G3 and G11, settle the overdue marker in the specs
+    96a8bf2 Merge pull request #7 from mohit-gupta-coditas/feat/m7-ingest
+    origin	https://github.com/mohit-gupta-coditas/actiontrack-py.git (fetch)
+    origin	https://github.com/mohit-gupta-coditas/actiontrack-py.git (push)
+    7	M7: ingest command	feat/m7-ingest	MERGED	2026-11-25T18:34:09Z
+    6	M6: SQLite store	feat/m6-store	MERGED	2026-11-25T18:10:19Z
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Both commits are in. The project workflow (T8.9) ends with opening the PR, so I'll match the format of PR #7.
+
+  [tool: Bash] [Read PR #7 body for format]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && gh pr view 7 --json body -q .body
+  [result]:
+    Implements [M7 — `ingest` command](spec/modules/M7-ingest/spec.md): notes folder → stored sources → regrouped items → ingest report.
+    
+    ## What's in it
+    - **`actiontrack/services/ingest.py`**: `run_ingest`, `scan`, `check_folder` and `format_report`.
+      - The scan finds `*.md` files in any letter case, skips hidden folders, and sorts by POSIX path.
+      - Each file is hashed and skipped if unchanged. A skipped note is reported again on every run.
+      - Each file gets its own transaction and exception boundary: an unexpected error becomes an `internal_error` skip and the other files carry on.
+      - Notes deleted from the folder are removed, but only under the scanned root (G4).
+      - The regroup always runs over all sources.
+    - **`actiontrack/cli.py`**: `ingest <folder> [--no-recursive] [--no-fuzzy] [--report-json PATH]` replaces the M0 stub.
+      - Progress bar on stderr, only on a TTY and without `-q`.
+      - `-q` prints the two summary lines; `-v` adds the `Merges:` section.
+      - `--debug` logs the traceback for each failed file.
+      - Exit codes: 0 / 1 / 2 / 130.
+    - **Fixture** `tests/fixtures/notes/ingest_basic/`: 15 sources → 13 items, including 1 exact and 1 fuzzy merge (98.1).
+    
+    ## Changes outside M7
+    - **M6 `ItemRepo.existing()` now returns only the item's own `task_norm`.** It used to return the norms of every linked source too, so a fuzzy merge became an exact match on the next run. As a result, `--no-fuzzy` or a higher threshold could never split it. That contradicts TC-M7-18 and G2 ("a config change applies everywhere"). With this change, re-running over unchanged sources gives the same groups as a fresh ingest. The M6 spec line and test are updated.
+    - Once split, two items are **not merged back** when fuzzy is turned on again. M5 never joins two existing items, because one of the IDs could already be in use (for example, marked done). This is documented in the M7 spec §3.5.
+    - **G4 is confirmed** in the root spec §9.1 and marked ✅ in the plan.
+    
+    ## Spec decisions recorded in the M7 spec
+    - With `--no-recursive`, only direct children of the root count as deleted, so sub-folder notes are kept.
+    - An `internal_error` file stores nothing and is retried next run.
+    - A re-reported skip has no line number, because the `notes` table has no column for it.
+    
+    ## Test cases
+    TC-M7-01 … TC-M7-19 (`tests/integration/test_ingest.py`, `tests/integration/test_cli_ingest.py`), plus edge cases: rollback after a failure mid-transaction, a sibling folder whose name shares a prefix, no-recursive removal, fixing a skipped note, report formatting, JSON write failure, the TTY progress bar, and `--debug`.
+    
+    ## Gate
+    - `ruff check`, `ruff format --check` and `mypy --strict actiontrack` are clean.
+    - 448 passed.
+    - Coverage: `services/ingest.py` 99%, `cli.py` 97%, `store/repo.py` 100%.
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+  [tool: Bash] [Push branch and open the M8 PR]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git push -q -u origin feat/m8-list-done 2>&1 | tail -2 && gh pr create --base main --title "M8: list and done commands" --body-file - <<'EOF'
+    Implements [M8 — `list` and `done` commands](spec/modules/M8-list-done/spec.md): filtered views of tracked items (table or JSON), and marking items done by short ID.
+    
+    ## What's in it
+    - **`actiontrack/services/query.py`**: `ItemView`, `resolve_owner_query`, `list_items` and `mark_done`.
+      - `--status` defaults to `open`, which includes overdue items. `--owner` together with `--unassigned` is rejected (exit 2).
+      - `--due-before` goes through `parse_user_date` with the configured date order. A bad date exits 2 with a `YYYY-MM-DD` hint.
+      - Orphaned items are hidden unless you pass `--flag orphaned` (G3).
+      - `done` resolves the prefix (4+ hex chars), sets `done_source='cli'` and `done_at=now`, and reports whether anything changed.
+    - **`actiontrack/cli.py`**: real `list` and `done` commands replace the M0 stubs.
+      - The table has the columns ID / Owner / Task / Due / Status / Src. Overdue rows are red and always read `⚠ overdue`. Ambiguous owners show as `? Priya (ambiguous)`. Note text is printed literally, never as rich markup.
+      - The footer `N items (M overdue)` and the message `No items match.` go to stderr and are suppressed by `-q`.
+      - `--json` writes schema v1 to stdout only. `filters` echoes the values as typed, with the status defaulted.
+      - `done` prints `✓ <id>  <task>  (<owner>)` and leaves out the owner suffix when there is none. On an item that is already done, it prints a notice to stderr and exits 0.
+    
+    ## Changes outside M8
+    - **New gap G11, resolved: `PeopleRepo.find` also matches item owners that have no `people` row.** An owner written as a full name who is not an attendee gets a derived key (G5), but ingest only stores attendees. Before this change, `list --owner Vikram` (and `followup` later) answered "no person matches". The fix is read-only, with no schema or ingest change. A row in `people` wins over an item-derived entry. The M6 spec and a repo test are updated.
+    - **G3 is confirmed** in root spec §9.2 and §9.4 (followup excludes orphaned items). The M11 open question is updated to match.
+    - **Root spec §9.2**: the `⚠` marker is always shown, not only when colour is off. This matches §13.4 ("colour is never the only signal"). The column is named `Src`.
+    - M0 test TC-M0-27 now covers only the remaining `followup` stub.
+    
+    ## Test cases
+    TC-M8-01 … TC-M8-25 (`tests/integration/test_query.py`, `tests/integration/test_cli_list_done.py`). They run against a `seeded_db` fixture built through the M6 repos: 3 people, a non-attendee owner, and 9 items, one of them orphaned by deleting its note. Edge cases are covered too: an empty `--json`, `-q`, markup in a task, a bad `--status` choice, done on an orphaned item, done without an owner, and the item-owner lookup.
+    
+    ## Gate
+    - `ruff check`, `ruff format --check` and `mypy --strict actiontrack` are clean.
+    - 501 passed, 1 skipped (full suite including slow tests).
+    - Coverage: `services/query.py` 100%, `store/repo.py` 100%, `cli.py` 99%.
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+    ... [1 more lines]
+  [result]:
+    remote:      https://github.com/mohit-gupta-coditas/actiontrack-py/pull/new/feat/m8-list-done        
+    remote: 
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8
+
+  [tool: Bash] [Link PR on status board and push]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -i 's#^| M8 | Draft | ☑ | ☑ | ☑ | — |#| M8 | Draft | ☑ | ☑ | ☑ | [\#8](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8) |#' spec/plan.md && grep -n "^| M8 |" spec/plan.md && git commit -qam "M8: link PR #8 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q && git status -sb | head -1
+  [result]:
+    90:| M8 | Draft | ☑ | ☑ | ☑ | [#8](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8) |
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    ## feat/m8-list-done...origin/feat/m8-list-done
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M8 is finished and up for review as PR #8: https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8
+
+All 25 M8 test cases pass, and so does the full suite (501 passed, 1 skipped). Ruff and mypy report no errors. Coverage is 100% on the new [query.py](actiontrack/services/query.py) and 99% on `cli.py`. I also ingested the fixture notes and ran `list`, `list --owner priya` and `done` twice by hand; the output was correct.
+
+**How I applied your answers**
+- **Orphaned items (G3):** they are hidden from `list` unless you pass `--flag orphaned`, and `followup` (M11) will leave them out. The root spec now says this and G3 is marked resolved.
+- **Owners who aren't attendees (new gap G11):** someone named in full in a note but not on the attendee list, like "Vikram Rao", is now found by `--owner`, and `followup` will find them the same way. I did this by changing a lookup in the M6 store. There is no schema or ingest change. If a name matches both an attendee and one of these item owners, the attendee wins. I logged G11 in the plan, marked it resolved, and added test TC-M8-25.
+- **`⚠` marker:** an overdue row always says `⚠ overdue`, in red when colour is on. I changed root spec §9.2 to match, and renamed the source-count column there from `Sources` to `Src` to match the M8 spec.
+
+**Other choices I made**
+- The JSON `filters` block repeats the filter values as you typed them. For example, `--due-before friday` appears as `"friday"`, not as the date it was read as.
+- A second `done` on the same item prints `<id> is already done.`, which `-q` hides. `No items match.` and the item-count line are hidden by `-q` too.
+- I added an `owner_raw` field to the item view so the table can show an ambiguous owner as `? Priya (ambiguous)`. The M8 spec has been updated to include it.
+
+The branch has three commits: the spec changes, the implementation, and the status-board link to the PR.
+
+
+####################################################################################################
+USER:
+commit push and raise PR
+
+  [tool: Bash] [Check for uncommitted work and PR state]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git status -sb && git log --oneline origin/feat/m8-list-done -3 && gh pr view 8 --json state,url,commits -q '"\(.state) \(.url) commits=\(.commits|length)"'
+  [result]:
+    ## feat/m8-list-done...origin/feat/m8-list-done
+    210187b M8: link PR #8 on the status board
+    2a30ce2 M8: list and done commands (filters, table/JSON output, prefix done)
+    3534fff M8: confirm gaps G3 and G11, settle the overdue marker in the specs
+    OPEN https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8 commits=3
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+This was already done at the end of the last step, so there was nothing new to commit or push. I just checked: no uncommitted changes, `feat/m8-list-done` matches GitHub, and the PR is open.
+
+**PR #8:** https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8
+
+It has three commits:
+- `3534fff`: the spec updates for orphaned items, owners who aren't attendees, and the `⚠` marker
+- `2a30ce2`: the `list` and `done` commands and their tests
+- `210187b`: the link to PR #8 on the status board
+
+
+####################################################################################################
+USER:
+pull changes on main
+
+  [tool: Bash] [Switch to main and pull latest]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git checkout -q main && git pull --ff-only 2>&1 | tail -5 && git log --oneline -4 && gh pr view 8 --json state -q .state
+  [result]:
+    tests/unit/core/test_cli.py             |   2 +-
+     15 files changed, 984 insertions(+), 43 deletions(-)
+     create mode 100644 actiontrack/services/query.py
+     create mode 100644 tests/integration/test_cli_list_done.py
+     create mode 100644 tests/integration/test_query.py
+    60eb082 Merge pull request #8 from mohit-gupta-coditas/feat/m8-list-done
+    210187b M8: link PR #8 on the status board
+    2a30ce2 M8: list and done commands (filters, table/JSON output, prefix done)
+    3534fff M8: confirm gaps G3 and G11, settle the overdue marker in the specs
+    MERGED
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I've switched to `main` and pulled; it now matches GitHub. That brings in PR #8, which is merged, so the M8 `list` and `done` commands are on `main` at merge commit `60eb082`.
+
+The next modules are M9 (email rendering) and M10 (Gmail connection). Neither depends on the other, and M11 (`followup`) needs both.
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv9.txt in conversations folder
+
+  [tool: Bash] [Check conversations folder and transcript file]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && ls conversations 2>&1 | head; ls -la "/c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/" | grep 702b62e6; git check-ignore conversations && echo ignored
+  [result] (error):
+    Exit code 1
+    conv1.txt
+    conv2.txt
+    conv3.txt
+    conv4.txt
+    conv5.txt
+    drwxr-xr-x 1 mohit.gupta_coditas 197121       0 Nov 26 00:08 702b62e6-f52e-4636-84e6-2ca9a59935a3
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 1495713 Nov 26 02:02 702b62e6-f52e-4636-84e6-2ca9a59935a3.jsonl
+
+  [tool: Bash] [Inspect existing export format]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker/conversations" && ls -la && head -c 1500 conv5.txt && echo && grep -c "" conv5.txt
+  [result]:
+    total 312
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 02:02 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 01:57 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 70905 Nov 26 01:59 conv1.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 75430 Nov 26 02:00 conv2.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 18910 Nov 26 02:02 conv3.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 62276 Nov 26 02:02 conv4.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 69906 Nov 26 02:02 conv5.txt
+    actiontrack — Conversation 5 (M4 item extraction: implement, PR, merge)
+    Session: 4c26c3e8-6b95-48b9-ad03-18e3442b2cb6
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    work on M4
+    
+    
+    ----------------------------------------------------------------------------------------------------
+    CLAUDE:
+    I'll start by looking at the repo to find what M4 covers.
+    
+      [tool: Bash] [List tracked files and read CLAUDE.md]
+      $ git ls-files | head -100 && cat CLAUDE.md 2>/dev/null | head -100
+      [result]:
+        .gitignore
+        .python-version
+        README.md
+        actiontrack/__init__.py
+        actiontrack/__main__.py
+        actiontrack/cli.py
+        actiontrack/clock.py
+        actiontrack/config.py
+        actiontrack/console.py
+        actiontrack/errors.py
+        actiontrack/models.py
+        actiontrack/parsing/__init__.py
+        actiontrack/parsing/dates.py
+    ... [12 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll match the format of the existing exports. First, a look at how they truncate long tool output and how the transcript is structured.
+
+  [tool: Bash] [Inspect truncation and tool formats in conv5]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker/conversations" && grep -n "more lines\|truncated\|\[tool: Write\]\|\[tool: Edit\]\|\[tool: AskUser" conv5.txt | head -12; grep -n "\[tool: Write\]" -A8 conv5.txt | head -20; tail -30 conv5.txt
+  [result]:
+    60:    ... [46 more lines]
+    105:    ... [43 more lines]
+    150:    ... [127 more lines]
+    195:    ... [41 more lines]
+    240:    ... [47 more lines]
+    285:    ... [24 more lines]
+    335:    ... [31 more lines]
+    342:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py  (6000 chars — content in repo)
+    397:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py  (1307 chars — content in repo)
+    398:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_items.py  (13058 chars — content in repo)
+    455:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py  (1077 chars — content in repo)
+    487:    ... [41 more lines]
+    342:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py  (6000 chars — content in repo)
+    343-  [result]:
+    344-    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py (file state is current in your context — no need to Read it back)
+    345-
+    346-
+    347-----------------------------------------------------------------------------------------------------
+    348-CLAUDE:
+    349-Simplifying the warning closure, then the tests.
+    350-
+    --
+    397:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py  (1307 chars — content in repo)
+    398:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_items.py  (13058 chars — content in repo)
+    399-  [result]:
+    400-    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py (file state is current in your context — no need to Read it back)
+    401-
+    402-  [result]:
+    403-    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_items.py (file state is current in your context — no need to Read it back)
+    404-
+    405-
+    406-----------------------------------------------------------------------------------------------------
+        def tool_summary(name, inp):
+            if name in ("Bash", "PowerShell"):
+                return f"[{inp.get('description', '')}]\n  $ " + short(inp.get("command", ""), 30).replace("\n", "\n    ")
+            if name == "Write":
+                return f"{inp.get('file_path')}  ({len(inp.get('content', ''))} chars — content in repo)"
+            if name == "Edit":
+                return (f"{inp.get('file_path')}\n  old: " + short(inp.get("old_string", ""), 10, 300)
+                        + "\n  new: " + short(inp.get("new_string", ""), 10, 300))
+    ... [23 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Earlier sessions used an export script. I'll check whether it still exists so I can reuse it.
+
+  [tool: Bash] [Find and read the earlier export script]
+  $ ls /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/*/scratchpad/export_conv.py 2>&1; ls -t /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/*/scratchpad/export_conv.py 2>/dev/null | head -1 | xargs cat
+  [result]:
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6/scratchpad/export_conv.py
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/ba1cdb32-a9c1-4616-af83-fda2d6eff3eb/scratchpad/export_conv.py
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/f9a42155-df89-4707-9ee1-ad5b8ae48bb5/scratchpad/export_conv.py
+    import json, re, sys
+    
+    src, dst = sys.argv[1], sys.argv[2]
+    SESSION = "4c26c3e8-6b95-48b9-ad03-18e3442b2cb6"
+    TAGS = re.compile(r"<(system-reminder|ide_opened_file|ide_selection)>.*?</\1>", re.S)
+    
+    
+    def clean(s):
+        return TAGS.sub("", s).strip()
+    
+    
+    def short(s, n=40, w=4000):
+        s = s if len(s) <= w else s[:w] + f"\n... [truncated, {len(s) - w} more chars]"
+        lines = s.splitlines()
+        return "\n".join(lines[:n] + ([f"... [{len(lines) - n} more lines]"] if len(lines) > n else []))
+    
+    
+    def tool_summary(name, inp):
+        if name in ("Bash", "PowerShell"):
+            return f"[{inp.get('description', '')}]\n  $ " + short(inp.get("command", ""), 30).replace("\n", "\n    ")
+        if name == "Write":
+            return f"{inp.get('file_path')}  ({len(inp.get('content', ''))} chars — content in repo)"
+        if name == "Edit":
+            return (f"{inp.get('file_path')}\n  old: " + short(inp.get("old_string", ""), 10, 300)
+                    + "\n  new: " + short(inp.get("new_string", ""), 10, 300))
+        if name == "Read":
+            return str(inp.get("file_path"))
+        return short(json.dumps(inp, ensure_ascii=False), 10, 600)
+    
+    
+    out = [
+        "actiontrack — Conversation 5 (M4 item extraction: implement, PR, merge)",
+        f"Session: {SESSION}",
+        "Exported: 2026-11-26",
+        "Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.",
+        "=" * 100, "",
+    ]
+    ... [28 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The script from an earlier session still exists. I'll reuse it for this session, with this session's ID and title.
+
+  [tool: Bash] [Export this session to conversations/conv9.txt]
+  $ BASE=/c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker
+    OLD=$BASE/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6/scratchpad/export_conv.py
+    NEW=$BASE/702b62e6-f52e-4636-84e6-2ca9a59935a3/scratchpad/export_conv.py
+    mkdir -p "$(dirname "$NEW")"
+    sed -e 's/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6/702b62e6-f52e-4636-84e6-2ca9a59935a3/' -e 's/Conversation 5 (M4 item extraction: implement, PR, merge)/Conversation 9 (M8 list \& done: gaps, implement, PR, merge)/' "$OLD" > "$NEW"
+    cd /c/Users/Coditas-Admin/Desktop/actionTracker && python "$NEW" /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/702b62e6-f52e-4636-84e6-2ca9a59935a3.jsonl conversations/conv9.txt && head -6 conversations/conv9.txt && grep -c "^USER:" conversations/conv9.txt && grep -A2 "^USER:" conversations/conv9.txt | head -20 && git status --short

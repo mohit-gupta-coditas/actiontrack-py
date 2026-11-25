@@ -1,0 +1,1153 @@
+actiontrack — Conversation 7 (M6 SQLite store: implement, PR, confirm G1/G2)
+Session: fb5f7051-92b3-4b92-956b-4bd9e245f133
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on M6 module
+
+  [tool: Bash] [Explore repo layout and recent history]
+  $ ls -a && cat CLAUDE.md 2>/dev/null | head -100 && git log --oneline | head -20 && git show --stat HEAD~1 | head -40
+  [result]:
+    .
+    ..
+    .coverage
+    .git
+    .gitignore
+    .mypy_cache
+    .pytest_cache
+    .python-version
+    .ruff_cache
+    .venv
+    README.md
+    actiontrack
+    pyproject.toml
+    spec
+    tests
+    uv.lock
+    3e494b8 M5: link PR #5 on the status board
+    0168eb3 M5: dedup & item IDs (normalization, exact/fuzzy grouping, merged fields, ID prefixes)
+    9e129b8 Merge pull request #4 from mohit-gupta-coditas/feat/m4-item-extraction
+    ae8ba25 M4: link PR #4 on the status board
+    4e306ba M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+    64e2287 Merge pull request #3 from mohit-gupta-coditas/feat/m3-dates
+    f26ab9d M3: link PR #3 on the status board
+    49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    eb52c66 M2: people & owner resolution (attendee parsing, roster, owner rules, email derivation)
+    4877a8e M0: mark T0.12 done and record merge in status board
+    5cfe703 M1: tick T1.9 and link PR #1 on the status board
+    79eea25 Merge pull request #1 from mohit-gupta-coditas/feat/m1-note-loader
+    5795c54 M1: note loader (frontmatter/heading layouts, dates, attendees, skip reasons)
+    7ba9395 M0: foundation (packaging, errors, clock, config, console, models, CLI skeleton)
+    7c34282 Add implementation plan and module specs M1-M12
+    cd12aa1 Add requirements and architecture spec for actiontrack
+    commit 0168eb34c8cac29d5c00490214382da8addf78e4
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Wed Nov 25 23:27:38 2026 +0530
+    
+        M5: dedup & item IDs (normalization, exact/fuzzy grouping, merged fields, ID prefixes)
+        
+    ... [19 more lines]
+
+  [tool: Bash] [List spec and source structure]
+  $ ls spec spec/modules spec/modules/M6* actiontrack tests tests/*; cat spec/plan.md; git branch -a; git status
+  [result]:
+    tests/__init__.py
+    tests/conftest.py
+    
+    actiontrack:
+    __init__.py
+    __main__.py
+    __pycache__
+    cli.py
+    clock.py
+    config.py
+    console.py
+    dedup.py
+    errors.py
+    models.py
+    parsing
+    
+    spec:
+    modules
+    plan.md
+    requirements.md
+    
+    spec/modules:
+    M0-foundation
+    M1-note-loader
+    M10-gmail-mcp
+    M11-followup
+    M12-e2e-release
+    M2-people
+    M3-dates
+    M4-item-extraction
+    M5-dedup
+    M6-store
+    M7-ingest
+    M8-list-done
+    M9-email-render
+    
+    spec/modules/M6-store:
+    spec.md
+    tasks.md
+    tests.md
+    ... [72 more lines]
+
+  [tool: Bash] [Check PR state and read M6 spec files]
+  $ git fetch -q && git log --oneline origin/main | head -3; gh pr list --state all | head; cat spec/modules/M6-store/spec.md spec/modules/M6-store/tasks.md spec/modules/M6-store/tests.md
+  [result]:
+    db29b1e Merge pull request #5 from mohit-gupta-coditas/feat/m5-dedup
+    3e494b8 M5: link PR #5 on the status board
+    0168eb3 M5: dedup & item IDs (normalization, exact/fuzzy grouping, merged fields, ID prefixes)
+    5	M5: dedup & item IDs	feat/m5-dedup	MERGED	2026-11-25T17:58:59Z
+    4	M4: action item extraction	feat/m4-item-extraction	MERGED	2026-11-25T17:38:34Z
+    3	M3: due-date extraction & resolution	feat/m3-dates	MERGED	2026-11-25T15:46:20Z
+    2	M2: people & owner resolution	feat/m2-people	MERGED	2026-11-25T15:31:57Z
+    1	M1: note loader	feat/m1-note-loader	MERGED	2026-11-25T15:21:07Z
+    # M6 — SQLite Store
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M0 |
+    | **Files** | `actiontrack/store/db.py`, `actiontrack/store/repo.py`, `actiontrack/store/migrations/0001_init.sql` |
+    | **REQ IDs** | REQ-STORE-01 … 06 |
+    
+    ## 1. Purpose
+    Persist notes, parsed sources, people, merged items and draft records. Expose small repositories so that services never write SQL.
+    Overdue is computed at query time.
+    
+    ## 2. Connection (REQ-STORE-04, REQ-STORE-05)
+    
+    ```python
+    def connect(path: Path) -> sqlite3.Connection
+        # mkdir -p parent; sqlite3.connect(path, detect_types=PARSE_DECLTYPES, isolation_level=None)
+        # PRAGMA journal_mode=WAL; busy_timeout=5000; foreign_keys=ON; row_factory=sqlite3.Row; migrate(conn)
+    @contextmanager
+    def transaction(conn) -> Iterator[None]
+        # BEGIN IMMEDIATE … COMMIT; ROLLBACK on any BaseException (incl. KeyboardInterrupt), then re-raise
+    def migrate(conn) -> None
+        # applies migrations/NNNN_*.sql in order where NNNN > PRAGMA user_version; each in its own transaction
+    ```
+    - `path == Path(":memory:")` is supported for tests.
+    - A DB with `user_version` greater than the latest known migration → `FatalError("database was created by a newer actiontrack")`.
+    - `sqlite3.OperationalError` "unable to open" / read-only → `FatalError` with the path.
+    
+    ## 3. Schema v1 (REQ-STORE-01, REQ-STORE-06)
+    
+    Extends root spec §8 with gaps G1 and G2 (nullable `people.email`, parsed fields in `item_sources`).
+    ... [42 more lines]
+
+CLAUDE:
+M5 is merged. I'll branch off main and read the contracts M6 relies on.
+
+  [tool: Bash] [Create branch and read models, errors, pyproject]
+  $ git checkout -q main && git pull -q && git checkout -b feat/m6-store && cat actiontrack/models.py actiontrack/errors.py pyproject.toml && ls -R tests | grep -v pycache
+  [result]:
+    Switched to a new branch 'feat/m6-store'
+    """Shared data contracts passed between modules (M0 spec §8).
+    
+    Later modules consume these types. Fields may only be added by changing the M0 spec first.
+    """
+    
+    from __future__ import annotations
+    
+    import dataclasses
+    from collections.abc import Mapping
+    from dataclasses import dataclass
+    from datetime import date, datetime
+    from enum import Enum, StrEnum
+    from pathlib import Path
+    from typing import Any, Literal
+    
+    JSON_SCHEMA_VERSION = 1
+    
+    
+    class Flag(StrEnum):
+        UNASSIGNED = "unassigned"
+        AMBIGUOUS_OWNER = "ambiguous_owner"
+        OWNER_NOT_ATTENDEE = "owner_not_attendee"
+        MULTI_OWNER = "multi_owner"
+        NO_DUE = "no_due"
+        UNPARSED_DUE = "unparsed_due"
+        ORPHANED = "orphaned"
+    
+    
+    class SkipReason(StrEnum):
+        EMPTY_FILE = "empty_file"
+        BINARY_FILE = "binary_file"
+        INVALID_ENCODING = "invalid_encoding"
+        INVALID_FRONTMATTER = "invalid_frontmatter"
+        MISSING_DATE = "missing_date"
+        UNPARSEABLE_DATE = "unparseable_date"
+        MISSING_ATTENDEES = "missing_attendees"
+        READ_ERROR = "read_error"
+        INTERNAL_ERROR = "internal_error"
+    
+    ... [127 more lines]
+
+  [tool: Bash] [Read dedup module, test conftests, clock, requirement refs]
+  $ cat actiontrack/dedup.py tests/unit/conftest.py tests/conftest.py actiontrack/clock.py && sed -n 1,80p tests/unit/test_dedup.py && grep -n "sqlite\|db_path\|8\.\|STORE" spec/requirements.md | head -60
+  [result]:
+    """Dedup & item IDs: parsed sources → unique action items with stable IDs (M5 spec).
+    
+    `group_items` is pure: the same sources and existing items always give the same groups, whatever
+    order they are passed in.
+    """
+    
+    from __future__ import annotations
+    
+    import hashlib
+    import re
+    import unicodedata
+    from collections.abc import Callable, Iterable, Sequence
+    from dataclasses import dataclass, field
+    from datetime import datetime
+    from typing import Literal
+    
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import (
+        ExistingItem,
+        Flag,
+        ItemGroup,
+        MergeDecision,
+        OwnerResolution,
+        ParsedItem,
+    )
+    
+    Scorer = Callable[[str, str], float]
+    
+    _NON_WORD = re.compile(r"[^\w\s]")
+    _STOP_WORDS = frozenset({"the", "a", "an"})
+    _HEX = re.compile(r"^[0-9a-f]+$")
+    _OWNER_FLAGS = frozenset(
+        {Flag.UNASSIGNED, Flag.AMBIGUOUS_OWNER, Flag.OWNER_NOT_ATTENDEE, Flag.MULTI_OWNER}
+    )
+    _MIN_PREFIX = 4
+    
+    
+    @dataclass(frozen=True)
+    class DedupConfig:
+        fuzzy_enabled: bool = True
+    ... [73 more lines]
+
+  [tool: Bash] [Read root data model spec, config db refs, prior PR body]
+  $ sed -n 150,225p spec/requirements.md && grep -n "db\b\|db_path\|sqlite" actiontrack/config.py actiontrack/cli.py | head -20 && cat spec/modules/M5-dedup/spec.md | sed -n 1,40p && git log -1 --format=%B 4e306ba && gh pr view 5 --json body -q .body
+  [result]:
+    *(Assumption. A `reopen` command is listed as future work.)*
+       - `first_seen` = the earliest meeting date, and `last_seen` = the latest.
+    4. Each merge decision is logged with its score in the ingest report (verbose mode), so the threshold can be tuned.
+    
+    ## 8. Data Model (SQLite)
+    
+    Default DB path: `<user_data_dir>/actiontrack.db` via `platformdirs` (§13.6). Override with `--db` or `ACTIONTRACK_DB`.
+    
+    ```sql
+    CREATE TABLE notes (
+      path          TEXT PRIMARY KEY,
+      sha256        TEXT NOT NULL,
+      meeting_date  DATE,
+      title         TEXT,
+      ingested_at   TIMESTAMP NOT NULL,
+      status        TEXT NOT NULL CHECK (status IN ('ok','skipped')),
+      skip_reason   TEXT
+    );
+    
+    CREATE TABLE people (
+      key           TEXT PRIMARY KEY,   -- email lowercased
+      full_name     TEXT NOT NULL,
+      first_name    TEXT NOT NULL,
+      email         TEXT NOT NULL
+    );
+    
+    CREATE TABLE items (
+      id            TEXT PRIMARY KEY,   -- full sha1 hex; CLI shows a short prefix
+      owner_key     TEXT REFERENCES people(key),  -- NULL = unassigned/ambiguous
+      owner_raw     TEXT,
+      task          TEXT NOT NULL,      -- display text
+      task_norm     TEXT NOT NULL,
+      due_date      DATE,
+      due_raw       TEXT,
+      status        TEXT NOT NULL CHECK (status IN ('open','done')),
+      done_source   TEXT CHECK (done_source IN ('note','cli')),
+      done_at       TIMESTAMP,
+      flags         TEXT NOT NULL DEFAULT '[]',   -- JSON array
+      first_seen    DATE NOT NULL,
+      last_seen     DATE NOT NULL
+    ... [57 more lines]
+
+  [tool: Bash] [Check how downstream specs use the store]
+  $ cat .python-version; grep -n "task_norms\|ExistingItem\|existing" spec/modules/M5-dedup/spec.md spec/modules/M7-ingest/spec.md spec/modules/M8-list-done/spec.md spec/modules/M11-followup/spec.md | head -40; grep -n "ItemRepo\|NoteRepo\|SourceRepo\|PeopleRepo\|DraftRepo\|ItemRow\|ItemFilter\|transaction\|connect(" spec/modules/M7-ingest/spec.md spec/modules/M8-list-done/spec.md spec/modules/M11-followup/spec.md | head -40
+  [result]:
+    3.12
+    spec/modules/M5-dedup/spec.md:6:| **Depends on** | M0 (types). Consumes `ParsedItem` (from M4) and `ExistingItem` (from M6) |
+    spec/modules/M5-dedup/spec.md:27:    orphaned_ids: tuple[str, ...]          # existing ids that matched no source
+    spec/modules/M5-dedup/spec.md:31:def group_items(sources: Sequence[ParsedItem], existing: Sequence[ExistingItem], cfg: DedupConfig) -> DedupResult
+    spec/modules/M5-dedup/spec.md:49:groups = []                       # each: owner_key, canonical_norm (first member), norms set, members, existing_id?
+    spec/modules/M5-dedup/spec.md:65:**Existing items**: before the loop, each `ExistingItem` seeds an empty "shell" group with its `id`, `owner_key` and `task_norms`.
+    spec/modules/M5-dedup/spec.md:66:Shells take part in the exact and fuzzy steps (canonical = the alphabetically smallest of its `task_norms`) and keep their ID. Shells
+    spec/modules/M5-dedup/spec.md:68:get (this is how an ambiguous-owner item finds its shell, since `ExistingItem` has no candidates). A shell that gets no members (or has
+    spec/modules/M5-dedup/spec.md:69:no `task_norms`) goes into `orphaned_ids`, sorted (REQ-INGEST-04 is applied by M7/M6).
+    spec/modules/M5-dedup/spec.md:75:| `id` | The shell's existing ID if any, else `make_item_id(owner_key, canonical_norm)` (REQ-ID-01) |
+    spec/modules/M5-dedup/spec.md:79:| `status` | `done` if the existing item is done (any source), **or** any member is `checked`. Otherwise `open` |
+    spec/modules/M5-dedup/spec.md:80:| `done_source` / `done_at` | Kept from the existing item when it is done (`cli` or `note`). Else `note` with `done_at=None` if any member is checked |
+    spec/modules/M5-dedup/spec.md:92:One `MergeDecision` for every source that **joined** a group that already had a member (the first source to land in an existing-item
+    spec/modules/M7-ingest/spec.md:44:5. **Regroup** (always, even if nothing changed, so that config changes apply): `group_items(SourceRepo.all(), ItemRepo.existing(),
+    spec/modules/M7-ingest/spec.md:34:   1. Compute sha256. If `NoteRepo.get(path)` has the same hash: status `ok` → `unchanged += 1`; status `skipped` → the
+    spec/modules/M7-ingest/spec.md:36:   2. `load_note` (M1). A `SkipRecord` → `NoteRepo.upsert_skipped` (removes any old sources), add it to `skipped`.
+    spec/modules/M7-ingest/spec.md:37:   3. Else `build_roster` (M2) → `extract_items` (M4) → in **one transaction**: `NoteRepo.upsert_ok`, `SourceRepo.replace_for_note`
+    spec/modules/M7-ingest/spec.md:38:      (REQ-INGEST-03), `PeopleRepo.upsert_many`. Warnings collected. `ingested += 1`.
+    spec/modules/M7-ingest/spec.md:39:   4. An unexpected exception → roll back that file's transaction, add `SkipRecord(INTERNAL_ERROR, detail="<Type>: <msg>")`,
+    spec/modules/M7-ingest/spec.md:42:4. **Deleted files** (gap G4): `NoteRepo.paths_under(folder)` minus the scanned set → `NoteRepo.delete` (sources cascade). Counted
+    spec/modules/M7-ingest/spec.md:44:5. **Regroup** (always, even if nothing changed, so that config changes apply): `group_items(SourceRepo.all(), ItemRepo.existing(),
+    spec/modules/M7-ingest/spec.md:45:   DedupConfig(...))` → `ItemRepo.apply_groups(result)` in one transaction. Orphaned items get the flag and their status is untouched
+    spec/modules/M7-ingest/spec.md:69:file's transaction is rolled back. Files already committed stay committed).
+    spec/modules/M8-list-done/spec.md:22:def resolve_owner_query(q: str, people: PeopleRepo) -> Person       # UserInputError if 0 or >1 matches (with candidates)
+    spec/modules/M8-list-done/spec.md:70:- `resolve_prefix(id, ItemRepo.ids())` (M5). Errors → exit 2 with candidates in the hint.
+    spec/modules/M8-list-done/spec.md:71:- `ItemRepo.mark_done(id, now=clock.now())`.
+    spec/modules/M11-followup/spec.md:33:| 1 | `resolve_owner_query(owner, PeopleRepo)` (M8) (REQ-FU-01) | 0 or 2+ matches → `UserInputError` with candidates, exit 2, no draft |
+    spec/modules/M11-followup/spec.md:34:| 2 | `ItemRepo.query(ItemFilter(owner_keys=(person.key,), status="open"))`. Orphaned and ambiguous it
+    ... [truncated, 348 more chars]
+
+  [tool: Bash] [Check parsing helpers and flag composition]
+  $ grep -n "^def \|flags=\|flags =" actiontrack/parsing/people.py actiontrack/parsing/items.py actiontrack/parsing/dates.py | head -40; ls actiontrack/parsing; cat actiontrack/parsing/__init__.py
+  [result]:
+    actiontrack/parsing/people.py:30:def normalize_name(s: str) -> str:
+    actiontrack/parsing/people.py:35:def derive_email(full_name: str, *, domain: str) -> str:
+    actiontrack/parsing/people.py:45:def parse_attendee(raw: str, *, domain: str) -> Attendee | None:
+    actiontrack/parsing/people.py:90:            return self._result(owner_raw, flags={Flag.UNASSIGNED})
+    actiontrack/parsing/people.py:98:                    owner_raw, key=wanted, display=text, flags={Flag.OWNER_NOT_ATTENDEE}
+    actiontrack/parsing/people.py:111:            return self._result(owner_raw, flags={Flag.OWNER_NOT_ATTENDEE, Flag.UNASSIGNED})
+    actiontrack/parsing/people.py:131:            return self._result(owner_raw, flags={Flag.OWNER_NOT_ATTENDEE, Flag.UNASSIGNED})
+    actiontrack/parsing/people.py:139:            return self._result(owner_raw, flags={Flag.OWNER_NOT_ATTENDEE, Flag.UNASSIGNED})
+    actiontrack/parsing/people.py:144:            return self._result(owner_raw, flags={Flag.OWNER_NOT_ATTENDEE, Flag.UNASSIGNED})
+    actiontrack/parsing/people.py:149:            flags={Flag.OWNER_NOT_ATTENDEE},
+    actiontrack/parsing/people.py:156:        return self._result(owner_raw, flags={Flag.AMBIGUOUS_OWNER}, candidates=tuple(keys))
+    actiontrack/parsing/people.py:171:            flags=frozenset(flags),
+    actiontrack/parsing/people.py:176:def build_roster(attendees_raw: Iterable[str], *, domain: str) -> Roster:
+    actiontrack/parsing/people.py:182:def _strip_accents(s: str) -> str:
+    actiontrack/parsing/people.py:186:def _has_alnum(s: str) -> bool:
+    actiontrack/parsing/people.py:190:def _name_from_local_part(local: str) -> str:
+    actiontrack/parsing/people.py:195:def _local_parts(a: Attendee) -> set[str]:
+    actiontrack/parsing/people.py:199:def _try_derive_email(full_name: str, *, domain: str) -> str | None:
+    actiontrack/parsing/items.py:66:def extract_items(
+    actiontrack/parsing/items.py:98:        flags = owner.flags | due.flags
+    actiontrack/parsing/items.py:112:                flags=flags,
+    actiontrack/parsing/items.py:118:def classify_line(line: str) -> CheckboxLine | MalformedCheckbox | None:
+    actiontrack/parsing/items.py:129:def clean_inline_markdown(s: str) -> str:
+    actiontrack/parsing/items.py:136:def split_owner(body: str) -> OwnerSplit:
+    actiontrack/parsing/items.py:154:def _is_name(owner: str) -> bool:
+    actiontrack/parsing/items.py:159:def _tidy_task(rest: str) -> str:
+    actiontrack/parsing/dates.py:61:def extract_due(text: str, *, anchor: date, date_order: DateOrder = "DMY") -> DueResolution:
+    actiontrack/parsing/dates.py:70:        flags=frozenset() if due_date else frozenset({Flag.UNPARSED_DUE}),
+    actiontrack/parsing/dates.py:75:def resolve_expr(expr: str, *, anchor: date, date_order: DateOrder = "DMY") -> date | None:
+    actiontrack/parsing/dates.py:80:def parse_user_date(text: str, *, today: date, date_order: DateOrder = "DMY") -> date:
+    actiontrack/parsing/dates.py:88:def _find_phrases(text: str) -> list[_Phrase]:
+    actiontrack/parsing/dates.py:100:def _pick(phrases: list[_Phrase]) -> _Phrase | None:
+    actiontrack/parsing/dates.py:109:def _resolve(
+    actiontrack/parsing/dates.py:142:def _calendar_date(e: str, *, anchor: date, date_order: DateOrder) -> date | None:
+    __init__.py
+    __pycache__
+    dates.py
+    items.py
+    note_loader.py
+    people.py
+    ... [1 more lines]
+
+  [tool: Bash] [Read name normalization and item assembly]
+  $ sed -n 25,70p actiontrack/parsing/people.py; sed -n 85,116p actiontrack/parsing/items.py; sed -n 55,74p actiontrack/parsing/dates.py
+  [result]:
+    # `First L` or `First L.`: a first name and a last-name initial.
+    _FIRST_AND_INITIAL = re.compile(r"^(\S+)\s+(\w)\.?$")
+    _EDGE_PUNCTUATION = " \t_,;:"
+    
+    
+    def normalize_name(s: str) -> str:
+        """Casefold, strip accents and collapse whitespace, for comparing names."""
+        return " ".join(_strip_accents(s).casefold().split())
+    
+    
+    def derive_email(full_name: str, *, domain: str) -> str:
+        """`Anna-Maria López` → `anna.maria.lopez@<domain>`. Raises if there is no last name."""
+        text = _APOSTROPHES.sub("", _strip_accents(full_name).lower())
+        parts = [_NOT_EMAIL_CHAR.sub("", p) for p in _EMAIL_PART_SEPARATORS.split(text)]
+        parts = [p for p in parts if p]
+        if len(parts) < 2:
+            raise UserInputError(f'cannot derive email: no last name for "{full_name.strip()}"')
+        return f"{'.'.join(parts)}@{domain}"
+    
+    
+    def parse_attendee(raw: str, *, domain: str) -> Attendee | None:
+        """Parse one raw attendee string. Returns None when it holds no name and no email."""
+        text = raw.replace("*", "").strip()
+        email: str | None = None
+        m = _EMAIL_IN_TEXT.search(text)
+        if m:
+            email = m.group(1).lower()
+            text = text[: m.start()] + text[m.end() :]
+        while (role := _TRAILING_ROLE.search(text)) is not None:
+            text = text[: role.start()]
+        name = " ".join(text.strip(_EDGE_PUNCTUATION).split())
+        if name.startswith("@"):
+            name = _name_from_local_part(name[1:])
+        if not _has_alnum(name):
+            if email is None:
+                return None
+            name = _name_from_local_part(email.partition("@")[0])
+        first, _, last = name.partition(" ")
+        derived = _try_derive_email(name, domain=domain) if last else None
+        return Attendee(
+    ... [56 more lines]
+
+  [tool: Bash] [Create store dirs and probe sqlite behaviour]
+  $ mkdir -p actiontrack/store/migrations tests/integration/store && .venv/Scripts/python -c "
+    import sqlite3,sys;print(sys.version, sqlite3.sqlite_version)
+    c=sqlite3.connect(':memory:',isolation_level=None)
+    c.executescript('BEGIN IMMEDIATE; CREATE TABLE t(x); PRAGMA user_version=3; COMMIT;')
+    print(c.execute('pragma user_version').fetchone(), c.in_transaction)
+    "
+  [result]:
+    3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)] 3.49.1
+    (3,) False
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\migrations\0001_init.sql  (2292 chars — content in repo)
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\__init__.py  (72 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\migrations\0001_init.sql (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\__init__.py (file state is current in your context — no need to Read it back)
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\db.py  (3392 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\db.py (file state is current in your context — no need to Read it back)
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\repo.py  (18680 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\repo.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Fixing a couple of things I don't like in what I just wrote: a junk `__all__` at the end, and `get()` reading the real clock (tests must never do that). `get()` will take `today=` just like `query`.
+
+  [tool: Bash] [Remove junk __all__ and add today param to get]
+  $ .venv/Scripts/python - <<'EOF'
+    p='actiontrack/store/repo.py'
+    s=open(p,encoding='utf-8').read()
+    i=s.index('\n\n__all__ = [')
+    s=s[:i]+'\n'
+    s=s.replace("from typing import Any, Literal, cast\n","from typing import Any, Literal\n")
+    s=s.replace('''    def get(self, item_id: str) -> ItemRow | None:
+            r = self._conn.execute(
+                f"SELECT *, {_OVERDUE_SQL} AS is_overdue FROM items WHERE id = :id",
+                {"id": item_id, "today": date.today().isoformat()},''','''    def get(self, item_id: str, *, today: date) -> ItemRow | None:
+            """One item by full ID, orphaned or not."""
+            r = self._conn.execute(
+                f"SELECT *, {_OVERDUE_SQL} AS is_overdue FROM items WHERE id = :id",
+                {"id": item_id, "today": today.isoformat()},''')
+    open(p,'w',encoding='utf-8',newline='\n').write(s)
+    EOF
+    tail -5 actiontrack/store/repo.py
+  [result]:
+    source_count=len(sources),
+            is_overdue=bool(r["is_overdue"]),
+            sources=tuple(sources),
+        )
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the tests: builders in `tests/integration/conftest.py`, then TC-M6-01…21.
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\conftest.py  (2592 chars — content in repo)
+  [tool: Bash] [Add test package inits, peek at test style]
+  $ touch tests/integration/__init__.py tests/integration/store/__init__.py && sed -n 1,30p tests/unit/parsing/test_people.py | head -30
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\conftest.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    from __future__ import annotations
+    
+    import pytest
+    
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import Attendee, Flag, OwnerResolution
+    from actiontrack.parsing.people import (
+        Roster,
+        build_roster,
+        derive_email,
+        normalize_name,
+        parse_attendee,
+    )
+    
+    DOMAIN = "coditas.com"
+    
+    
+    def attendee(raw: str, domain: str = DOMAIN) -> Attendee:
+        result = parse_attendee(raw, domain=domain)
+        assert result is not None, raw
+        return result
+    
+    
+    def roster(*raw: str) -> Roster:
+        return build_roster(raw, domain=DOMAIN)
+    
+    
+    def assert_resolved(res: OwnerResolution, key: str, display: str) -> None:
+        assert res.owner_key == key
+        assert res.owner_display == display
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\store\test_db.py  (7094 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\store\test_db.py (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Tidy date import in db tests]
+  $ .venv/Scripts/python - <<'EOF'
+    p='tests/integration/store/test_db.py'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace("import time\nfrom pathlib","import time\nfrom datetime import date\nfrom pathlib")
+    s=s.replace('today=__import__("datetime").date(2026, 11, 25))','today=date(2026, 11, 25))')
+    open(p,'w',encoding='utf-8',newline='\n').write(s)
+    EOF
+  [result]:
+    (Bash completed with no output)
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\store\test_repo.py  (16031 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\store\test_repo.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Swapping my clumsy `__slots__` rebuilds for `dataclasses.replace` and dropping the filler test, then running everything.
+
+  [tool: Bash] [Clean up test file and run integration tests]
+  $ .venv/Scripts/python - <<'EOF'
+    p='tests/integration/store/test_repo.py'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace("import json\nimport sqlite3\n","import dataclasses\nimport json\nimport sqlite3\n")
+    s=s.replace('''    items = [
+            ParsedItem(**{**{f: getattr(i, f) for f in i.__slots__}, "note_title": "Weekly"})  # type: ignore[arg-type]
+            for i in items
+        ]''','''    items = [dataclasses.replace(i, note_title="Weekly") for i in items]''')
+    s=s.replace('''    i = ParsedItem(**{**{f: getattr(i, f) for f in i.__slots__}, "due": DueResolution(i.due.due_date, i.due.due_raw, i.due.flags, (5, 10))})  # type: ignore[arg-type]  # noqa: E501''','''    i = dataclasses.replace(i, due=dataclasses.replace(i.due, span=(5, 10)))''')
+    s=s.replace('''
+    
+    def test_unused_builder_helpers_are_importable() -> None:
+        assert owner(PRIYA).owner_key == PRIYA
+    ''','\n')
+    s=s.replace("    DueResolution,\n","").replace("    ParsedItem,\n","")
+    s=s.replace("import NOW, add_note, group, owner, src, store_sources","import NOW, add_note, group, src, store_sources")
+    open(p,'w',encoding='utf-8',newline='\n').write(s)
+    EOF
+    .venv/Scripts/python -m pytest tests/integration -q 2>&1 | tail -40
+  [result]:
+    .......s...................................                              [100%]
+    42 passed, 1 skipped in 2.90s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+42 pass, 1 skipped (the POSIX-only read-only-dir test, as the spec allows). Now the quality gate.
+
+  [tool: Bash] [Run ruff, mypy, full tests with store coverage]
+  $ .venv/Scripts/ruff format . && .venv/Scripts/ruff check . ; .venv/Scripts/mypy --strict actiontrack; .venv/Scripts/python -m pytest -q --cov=actiontrack.store --cov-report=term-missing 2>&1 | tail -12
+  [result]:
+    2 files reformatted, 53 files left unchanged
+    E501 Line too long (106 > 100)
+      --> actiontrack\store\db.py:64:101
+       |
+    63 | def migrate(conn: sqlite3.Connection) -> None:
+    64 |     """Apply `migrations/NNNN_*.sql` with NNNN > `user_version`, in order, each in its own transaction."""
+       |                                                                                                     ^^^^^^
+    65 |     migrations = _migrations()
+    66 |     latest = migrations[-1][0] if migrations else 0
+       |
+    
+    E501 Line too long (106 > 100)
+       --> actiontrack\store\repo.py:120:101
+        |
+    119 |     def paths_under(self, root: Path) -> list[Path]:
+    120 |         """Stored note paths equal to or below `root` (path-aware, so `notes2/` is not under `notes/`)."""
+        |                                                                                                     ^^^^^^
+    121 |         paths = [Path(r[0]) for r in self._conn.execute("SELECT path FROM notes ORDER BY path")]
+    122 |         return [p for p in paths if p == root or root in p.parents]
+        |
+    
+    E501 Line too long (102 > 100)
+      --> tests\integration\conftest.py:57:101
+       |
+    55 |     owner_display: str | None = None,
+    56 | ) -> ItemGroup:
+    57 |     """An `ItemGroup` over `sources` (at least one), with the fields a test cares about overridden."""
+       |                                                                                                     ^^
+    58 |     first = sources[0]
+    59 |     norm = normalize_task(first.task)
+       |
+    
+    SIM300 [*] Yoda condition detected
+      --> tests\integration\store\test_db.py:39:16
+       |
+    37 |     try:
+    38 |         assert path.parent.is_dir()
+    39 |         assert TABLES <= tables(conn)
+       |                ^^^^^^^^^^^^^^^^^^^^^^
+    40 |         assert user_version(conn) == 1
+    ... [62 more lines]
+
+  [tool: Bash] [Fix lint issues and re-run checks]
+  $ .venv/Scripts/python - <<'EOF'
+    import re
+    def sub(p,a,b):
+        s=open(p,encoding='utf-8').read(); assert a in s,(p,a); s=s.replace(a,b); open(p,'w',encoding='utf-8',newline='\n').write(s)
+    sub('actiontrack/store/db.py','"""Apply `migrations/NNNN_*.sql` with NNNN > `user_version`, in order, each in its own transaction."""','"""Apply each `migrations/NNNN_*.sql` with NNNN > `user_version`, in its own transaction."""')
+    sub('actiontrack/store/repo.py','"""Stored note paths equal to or below `root` (path-aware, so `notes2/` is not under `notes/`)."""','"""Stored note paths at or below `root` (by path parts: `notes2/` is not under `notes/`)."""')
+    sub('tests/integration/conftest.py','"""An `ItemGroup` over `sources` (at least one), with the fields a test cares about overridden."""','"""An `ItemGroup` over `sources` (at least one), with the fields a test cares about set."""')
+    EOF
+    .venv/Scripts/ruff check --fix . && .venv/Scripts/ruff format --check . && .venv/Scripts/mypy --strict actiontrack && git status --short
+  [result]:
+    Found 3 errors (3 fixed, 0 remaining).
+    55 files already formatted
+    Success: no issues found in 17 source files
+    ?? actiontrack/store/
+    ?? tests/integration/
+    [This command modified 4 files you've previously read: actiontrack\store\repo.py, tests\integration\conftest.py, tests\integration\store\test_db.py, actiontrack\store\db.py. Call Read before editing.]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All green: ruff, format, mypy strict, 415 passed, store coverage 100%. Now I'll bring the spec in line with what I built (a few deliberate deviations), tick the tasks and update the status board.
+
+  [tool: Bash] [Update M6 spec, tick tasks, update status board]
+  $ grep -n "sql" .gitignore; .venv/Scripts/python - <<'EOF'
+    def sub(p,a,b):
+        s=open(p,encoding='utf-8').read(); assert a in s,(p,a); s=s.replace(a,b,1); open(p,'w',encoding='utf-8',newline='\n').write(s)
+    p='spec/modules/M6-store/spec.md'
+    sub(p,"| **Depends on** | M0 |","| **Depends on** | M0. Uses `normalize_task` and `DedupResult` (M5) and `normalize_name` (M2) |")
+    sub(p,"""    # mkdir -p parent; sqlite3.connect(path, detect_types=PARSE_DECLTYPES, isolation_level=None)
+        # PRAGMA journal_mode=WAL; busy_timeout=5000; foreign_keys=ON; row_factory=sqlite3.Row; migrate(conn)
+    @contextmanager
+    def transaction(conn) -> Iterator[None]
+        # BEGIN IMMEDIATE … COMMIT; ROLLBACK on any BaseException (incl. KeyboardInterrupt), then re-raise
+    def migrate(conn) -> None
+        # applies migrations/NNNN_*.sql in order where NNNN > PRAGMA user_version; each in its own transaction
+    ```
+    - `path == Path(":memory:")` is supported for tests.
+    - A DB with `user_version` greater than the latest known migration → `FatalError("database was created by a newer actiontrack")`.
+    - `sqlite3.OperationalError` "unable to open" / read-only → `FatalError` with the path.""","""    # mkdir -p parent; sqlite3.connect(path, isolation_level=None)
+        # PRAGMA journal_mode=WAL; busy_timeout=5000; foreign_keys=ON; row_factory=sqlite3.Row; migrate(conn)
+    @contextmanager
+    def transaction(conn) -> Iterator[None]
+        # BEGIN IMMEDIATE … COMMIT; ROLLBACK on any BaseException (incl. KeyboardInterrupt), then re-raise.
+        # Re-entrant: inside an open transaction it does nothing and the outer block owns the commit.
+    def migrate(conn) -> None
+        # applies migrations/NNNN_*.sql in order where NNNN > PRAGMA user_version; each in its own transaction
+    ```
+    - `path == Path(":memory:")` (`db.MEMORY`) is supported for tests.
+    - A DB with `user_version` greater than the latest known migration → `FatalError("database was created by a newer actiontrack")`.
+    - Any `sqlite3.DatabaseError` while opening (unable to open, read-only, not a database) or an `OSError` creating the parent
+      directory → `FatalError` naming the path.
+    - **No `detect_types`.** Python 3.12 deprecates the default date/datetime adapters, so dates and timestamps are stored as ISO-8601
+      text and converted in `repo.py`. ISO dates compare correctly as text.
+    ... [16 more lines]
+  [result]:
+    warning: in the working copy of 'spec/modules/M6-store/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M6-store/tasks.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+     spec/modules/M6-store/spec.md  | 61 ++++++++++++++++++++++++++++--------------
+     spec/modules/M6-store/tasks.md | 18 ++++++-------
+     spec/plan.md                   |  4 +--
+     3 files changed, 52 insertions(+), 31 deletions(-)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Spec, tasks and status board are updated. Following the module workflow (T6.9: open the PR), I'll commit, push and open the PR, then link it on the status board as in M1–M5.
+
+  [tool: Bash] [Commit, push branch and open the M6 PR]
+  $ git add -A && git commit -q -F - <<'EOF'
+    M6: SQLite store (connection, migrations, schema v1, repositories)
+    
+    - store/db.py: connect (mkdir, WAL, busy_timeout=5000, foreign_keys, Row factory, error mapping
+      to FatalError), re-entrant transaction (BEGIN IMMEDIATE, rollback on any BaseException),
+      migration runner over migrations/NNNN_*.sql with newer-schema detection.
+    - store/migrations/0001_init.sql: schema v1 with gaps G1 (nullable people.email) and G2
+      (parsed fields in item_sources, PK (note_path, line_no)) and the four indexes.
+    - store/repo.py: NoteRepo, SourceRepo (ParsedItem round trip), PeopleRepo (find by key,
+      email, full or first name), ItemRepo (existing, apply_groups with orphan flagging, query
+      with derived overdue, get, ids, mark_done), DraftRepo.
+    - Dates stored as ISO text (no detect_types: 3.12 deprecates the default adapters).
+    - Tests TC-M6-01..21 plus edge cases in tests/integration/store; builders in
+      tests/integration/conftest.py.
+    - Spec updated with the above; tasks ticked; status board updated.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git push -q -u origin feat/m6-store 2>&1 | tail -2; gh pr create --base main --title "M6: SQLite store" --body-file - <<'EOF'
+    Implements [M6 — SQLite Store](spec/modules/M6-store/spec.md) in `actiontrack/store/`.
+    
+    **Test cases:** TC-M6-01 … TC-M6-21 (`tests/integration/store/`), plus edge cases (path is a directory, parent is a file, not a database, nested transactions, failing/concurrent migrations, path-aware `paths_under`, cascades, orphan re-flagging, query filters and source refs). TC-M6-21 is skipped on Windows, as the spec allows; the portable error cases cover the same mapping.
+    **REQ IDs:** REQ-STORE-01 … 06.
+    
+    ### What's in it
+    - `db.connect`: creates the parent dir, WAL, `busy_timeout=5000`, `foreign_keys=ON`, `sqlite3.Row`, runs migrations. Open errors → `FatalError` naming the path.
+    - `db.transaction`: `BEGIN IMMEDIATE … COMMIT`, rollback on any `BaseException`; re-entrant so repo methods are atomic alone and join M7's transaction.
+    - `db.migrate`: `migrations/NNNN_*.sql` above `user_version`, each in its own transaction; newer DB → `FatalError("… newer actiontrack")`.
+    - Schema v1 (`0001_init.sql`) with G1/G2 and the four indexes (plan checked in TC-M6-06).
+    - Repos: `NoteRepo`, `SourceRepo`, `PeopleRepo`, `ItemRepo`, `DraftRepo`, plus `ItemFilter`, `ItemRow`, `SourceRef`, `NoteRow`.
+    ... [18 more lines]
+  [result]:
+    warning: in the working copy of 'spec/modules/M6-store/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M6-store/tasks.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/store/__init__.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/store/db.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/store/migrations/0001_init.sql', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/store/repo.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/conftest.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/store/test_db.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/store/test_repo.py', LF will be replaced by CRLF the next time Git touches it
+    remote:      https://github.com/mohit-gupta-coditas/actiontrack-py/pull/new/feat/m6-store        
+    remote: 
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/6
+
+  [tool: Bash] [Link PR on status board, commit and push]
+  $ sed -i 's#| M6 | Draft | ☑ | ☑ | ☑ | — |#| M6 | Draft | ☑ | ☑ | ☑ | [\#6](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/6) |#' spec/plan.md && grep -n "^| M6 |" spec/plan.md && git commit -qam "M6: link PR #6 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>&1 | tail -1; git log --oneline -3
+  [result]:
+    88:| M6 | Draft | ☑ | ☑ | ☑ | [#6](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/6) |
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    73057c2 M6: link PR #6 on the status board
+    3dd8f37 M6: SQLite store (connection, migrations, schema v1, repositories)
+    db29b1e Merge pull request #5 from mohit-gupta-coditas/feat/m5-dedup
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M6 (the SQLite store) is built and open for review as [PR #6](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/6), on branch `feat/m6-store` (branched from `main` after #5 merged).
+
+**Checks:** all 21 test cases from the spec (TC-M6-01…21) plus extra edge cases are in [tests/integration/store/](tests/integration/store/). The full suite gives 415 passed and 1 skipped. The skipped one is TC-M6-21, the read-only-directory test, because Windows can't simulate a read-only folder; the spec allows that skip. It's still worth a run on Linux or macOS. Other tests cover the same error handling on Windows: a path that is a folder, a parent that is a file, and a file that isn't a database. `ruff`, `ruff format` and `mypy --strict` are clean, and coverage of `actiontrack/store` is 100%.
+
+**What's in it:**
+- **Connecting** ([db.py](actiontrack/store/db.py)): `connect` creates the folder, turns on WAL mode, a 5-second wait when the database is busy, and foreign keys, then applies any pending schema migrations. Any failure to open becomes a `FatalError` that names the path, and so does a database created by a newer version. `transaction` rolls back on any exception, including Ctrl+C.
+- **Schema** ([0001_init.sql](actiontrack/store/migrations/0001_init.sql)): version 1 with the G1 and G2 changes and the four indexes. A test confirms the owner and status/due queries actually use those indexes.
+- **Repositories** ([repo.py](actiontrack/store/repo.py)): notes, parsed sources, people, items and drafts. Overdue is worked out in the query from `today` and never stored. Orphaned items are hidden unless asked for (G3).
+
+**Places I departed from the spec.** Each is written into [the M6 spec](spec/modules/M6-store/spec.md) and listed in the PR:
+- **Dates are stored as text.** They go in as ISO strings and are converted in the repository code, instead of using `detect_types`. Python 3.12 deprecates the built-in date converters that option relies on.
+- **`ItemRepo.get` now takes `today`.** Otherwise it would have to read the real clock to decide whether an item is overdue, which the tests must never do.
+- **`transaction` can be nested.** Inside an open transaction it does nothing, so the repository methods are safe on their own and still fit inside the single transaction M7 will wrap them in.
+- **`notes.sha256` can be empty.** A note skipped because it couldn't be read has no hash, so it gets retried on every ingest.
+- **Two things aren't restored when sources are read back.** The position of the due-date phrase in the line comes back empty; the dedup step doesn't use it. The due-date flags are rebuilt from the item's stored flags.
+- **M6 now imports from M5 and M2:** `normalize_task` and `DedupResult` from dedup, and `normalize_name` from people.
+
+Still open: G1 and G2 need confirming in the root spec §8, and that's flagged in the PR. M7 (the `ingest` command) is the next module that can start; it needs M1–M6, which are all done once #6 merges.
+
+
+
+####################################################################################################
+USER:
+can you ask me using ask user question tool with your recommendation if there is any question
+
+  [tool: AskUserQuestion] Q (G1 / G2): M6 relies on two proposed fixes still marked open in the root spec. G1: an attendee known only by first name gets the key `name:<first>`, so `people.email` must allow NULL. G2: `item_sources` stores each item's parsed fields, keyed by (note_path, line_no), so ingest can regroup everything each run. Should I write these into the root spec (requirements.md §8) and mark them resolved in plan.md §5?
+     - Confirm both (Recommended): Update requirements.md §8 to match the M6 schema (nullable email, parsed source fields, nullable notes.sha256, skip_detail, drafts.recipient) and mark G1/G2 resolved. Small follow-up commit on the M6 PR.
+     - Confirm later: Leave G1/G2 open for now. M6 code already assumes them, so nothing changes until you decide.
+     - Revisit the design: You disagree with one of them. M6 and M7 would need to change before going further.
+  Q (Spec changes): PR #6 changes a few things from the M6 spec: dates stored as ISO text instead of using detect_types, `ItemRepo.get` takes a `today` argument, `transaction` can be nested, `notes.sha256` can be empty, and the due-phrase position isn't stored. Are these OK to keep?
+     - Keep all (Recommended): Each one fixes a concrete problem: a Python 3.12 deprecation, never reading the real clock in tests, atomic repo methods inside M7's transaction, unreadable notes having no hash. All are written into the M6 spec.
+     - Change some: Tell me which ones to change (use the notes field) and I'll update the code, tests and spec on the same PR.
+  Q (Next step): What should happen next with PR #6 and M7 (the `ingest` command, which is the next module now unblocked)?
+     - You review, then M7 (Recommended): You review and merge #6 yourself; I start M7 on a new branch off main once it's merged. Matches how M1–M5 went.
+     - Start M7 now: I branch M7 off feat/m6-store right away and rebase onto main after #6 merges.
+     - Merge #6 for me: I merge PR #6 into main via gh, then start M7 from the updated main.
+     - Stop here: Nothing more for now.
+  [result]:
+    Your questions have been answered: "M6 relies on two proposed fixes still marked open in the root spec. G1: an attendee known only by first name gets the key `name:<first>`, so `people.email` must allow NULL. G2: `item_sources` stores each item's parsed fields, keyed by (note_path, line_no), so ingest can regroup everything each run. Should I write these into the root spec (requirements.md §8) and mark them resolved in plan.md §5?"="Confirm both (Recommended)", "PR #6 changes a few things from the M6 spec: dates stored as ISO text instead of using detect_types, `ItemRepo.get` takes a `today` argument, `transaction` can be nested, `notes.sha256` can be empty, and the due-phrase position isn't stored. Are these OK to keep?"="Keep all (Recommended)", "What should happen next with PR #6 and M7 (the `ingest` command, which is the next module now unblocked)?"="You review, then M7 (Recommended)". You can now continue with these answers in mind.
+
+CLAUDE:
+I'll write G1/G2 into the root spec now and push it to PR #6.
+
+  [tool: Bash] [Find gap references and context in root spec]
+  $ grep -n "G1\|G2\|gap\|item_sources\|people(key)" spec/requirements.md | head -20; sed -n 120,153p spec/requirements.md
+  [result]:
+    147:   - Every occurrence is kept in `item_sources` (file, line, meeting date, raw text, due date as written).
+    178:  owner_key     TEXT REFERENCES people(key),  -- NULL = unassigned/ambiguous
+    192:CREATE TABLE item_sources (
+    230:  `item_sources` rows are removed and re-inserted.
+    420:  `items(owner_key)`, `items(status, due_date)` and `item_sources(note_path)`.
+    ## 6. Owner Resolution (incl. same first name)
+    
+    1. Build the attendee index for the note: `full_name`, `first_name`, `last_name`, `email` (if present).
+    2. Match the raw owner in this order:
+       1. exact email, or an `@handle` matching the email local-part
+       2. exact full name (case-insensitive)
+       3. first name + last initial (`Priya S.`)
+       4. first name only → **only if exactly one attendee has that first name**
+    3. If the first name alone matches more than one attendee (e.g. two Priyas) → `owner = NULL`, flag `ambiguous_owner`, and keep
+       `owner_raw = "Priya"` and the candidate list. These items show up in `list --flag ambiguous_owner` for manual fixing.
+    4. If no name is detected → `owner = NULL`, flag `unassigned`.
+    5. A name that is not in the attendees list → stored as given, with the flag `owner_not_attendee`.
+       *(Assumption: action items are sometimes assigned to people who were not in the meeting.)*
+    
+    **Canonical person key** = lowercased email if known, otherwise `firstname.lastname` (D13). This key is used for dedup,
+    `--owner` filtering and `followup`.
+    
+    ## 7. Deduplication (D7, D8)
+    
+    Run after parsing, per owner:
+    
+    1. **Exact pass**: the same `owner_key` and an identical `task_norm` → same item.
+    2. **Fuzzy pass**: the same `owner_key` and `rapidfuzz.fuzz.token_set_ratio(task_norm_a, task_norm_b) ≥ threshold`
+       (default **88**, config `dedup.fuzzy_threshold`, disabled with `--no-fuzzy`).
+       - `token_set_ratio` ignores word order and extra words, so `send revised quote` and `send revised quote to client` score about 100.
+       - Items with **no owner are never fuzzy-merged** (only exact matches), which avoids false merges of generic tasks.
+    3. When items are merged:
+       - Every occurrence is kept in `item_sources` (file, line, meeting date, raw text, due date as written).
+       - `due_date` = the due date from the **most recent meeting** that gave one. Earlier ones stay in the sources table.
+       - `status`: once `done` (in a note or via the CLI), the item stays done. A later note showing `[ ]` again does not reopen it.
+         *(Assumption. A `reopen` command is listed as future work.)*
+       - `first_seen` = the earliest meeting date, and `last_seen` = the latest.
+    4. Each merge decision is logged with its score in the ingest report (verbose mode), so the threshold can be tuned.
+
+  [tool: Bash] [Read re-ingest and index sections of root spec]
+  $ sed -n 222,235p spec/requirements.md; sed -n 414,422p spec/requirements.md
+  [result]:
+    ## 9. Commands
+    
+    Global options: `--db PATH`, `--config PATH`, `-v/--verbose` (repeatable), `-q/--quiet`, `--no-color`, `--debug`, `--version`, `-h/--help`.
+    Extra command: `actiontrack config show` (§13.6).
+    
+    ### 9.1 `actiontrack ingest <folder>`
+    - Recursively finds `*.md` files (non-recursive with `--no-recursive`).
+    - For each file, if the `sha256` is unchanged since the last ingest it is skipped (D12). Otherwise the file is parsed, and its old
+      `item_sources` rows are removed and re-inserted.
+    - Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+    - Never resets `status='done'` where `done_source='cli'`.
+    - All writes for one run happen in a single transaction per file, so a failure on one file does not corrupt the others.
+    - **Ingest report** (stdout, plus `--report-json PATH`):
+      ```
+    - Secrets are never stored by the CLI (MCP server auth is handled by the server).
+    
+    ### 13.7 Performance
+    - `list`, `done` and `--help` start in under 300 ms. Heavy imports (`dateparser`, `rapidfuzz`, `mcp`, `jinja2`) are
+      **imported lazily** inside the commands that need them.
+    - `ingest` streams files one at a time and does not load the whole folder into memory. The SQLite indexes used are
+      `items(owner_key)`, `items(status, due_date)` and `item_sources(note_path)`.
+    
+    ### 13.8 Robustness & portability
+
+  [tool: Bash] [Write G1/G2 into root spec and mark resolved]
+  $ .venv/Scripts/python - <<'EOF'
+    def sub(p,a,b):
+        s=open(p,encoding='utf-8').read(); assert a in s,(p,a); s=s.replace(a,b,1); open(p,'w',encoding='utf-8',newline='\n').write(s)
+    p='spec/requirements.md'
+    s=open(p,encoding='utf-8').read()
+    start=s.index("```sql\nCREATE TABLE notes (")
+    end=s.index("```",start+6)+3
+    new='''```sql
+    CREATE TABLE notes (
+      path          TEXT PRIMARY KEY,
+      sha256        TEXT,               -- NULL only for a skipped note that could not be read
+      meeting_date  DATE,
+      title         TEXT,
+      ingested_at   TIMESTAMP NOT NULL,
+      status        TEXT NOT NULL CHECK (status IN ('ok','skipped')),
+      skip_reason   TEXT,
+      skip_detail   TEXT
+    );
+    
+    CREATE TABLE people (
+      key           TEXT PRIMARY KEY,   -- email lowercased | derived email | "name:<first>" (G1)
+      full_name     TEXT NOT NULL,
+      first_name    TEXT NOT NULL,
+      email         TEXT                -- explicit or derived; NULL for a first-name-only attendee (G1)
+    );
+    
+    CREATE TABLE items (
+      id            TEXT PRIMARY KEY,   -- full sha1 hex; CLI shows a short prefix
+      owner_key     TEXT,               -- NULL = unassigned/ambiguous
+      owner_display TEXT,
+    ... [59 more lines]
+  [result]:
+    152:## 7. Open questions
+    153-None. G1 and G2 are confirmed in the root spec §8, together with the other schema changes this module makes: nullable
+    154-`notes.sha256` (a note skipped with `READ_ERROR` has no hash, so it is retried on every ingest), `notes.skip_detail`,
+    155-`items.owner_display` and `drafts.recipient`.
+    warning: in the working copy of 'spec/modules/M6-store/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/requirements.md', LF will be replaced by CRLF the next time Git touches it
+     spec/modules/M6-store/spec.md |  5 +++--
+     spec/plan.md                  |  7 +++---
+     spec/requirements.md          | 50 ++++++++++++++++++++++++++++---------------
+     3 files changed, 40 insertions(+), 22 deletions(-)
+
+  [tool: Bash] [Commit spec confirmation, push, update PR description]
+  $ git commit -qam "M6: confirm gaps G1 and G2 in the root spec
+    
+    - requirements.md §8: schema matches M6 v1 (nullable people.email, parsed fields in item_sources
+      keyed by (note_path, line_no), nullable notes.sha256, skip_detail, owner_display, recipient).
+    - requirements.md §6: person key falls back to name:<firstname>.
+    - plan.md §5: G1 and G2 marked resolved.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>&1 | tail -1; body=$(gh pr view 6 --json body -q .body) && printf '%s' "${body/G1 \/ G2 still need confirming in the root spec §8./G1 and G2 are now confirmed in the root spec (§6, §8) and marked resolved in plan.md §5.}" | gh pr edit 6 --body-file - && gh pr view 6 --json body -q .body | grep -n "G1"
+  [result]:
+    warning: in the working copy of 'spec/modules/M6-store/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/requirements.md', LF will be replaced by CRLF the next time Git touches it
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/6
+    10:- Schema v1 (`0001_init.sql`) with G1/G2 and the four indexes (plan checked in TC-M6-06).
+    26:G1 and G2 are now confirmed in the root spec (§6, §8) and marked resolved in plan.md §5.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+G1 and G2 are now written into the root spec and pushed to [PR #6](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/6). Only spec files changed in this commit.
+
+- **[requirements.md](spec/requirements.md):**
+  - **§8:** the schema now matches the one M6 builds. `people.email` can be empty, each checkbox row in `item_sources` keeps its parsed fields, and those rows are identified by note path plus line number. It also includes the smaller additions: `notes.sha256` can be empty, plus `skip_detail`, `owner_display` and `recipient`.
+  - **§6:** the person key now falls back to `name:<firstname>` for someone listed only by first name.
+- **[plan.md](spec/plan.md) §5:** G1 and G2 are marked resolved.
+- **[M6 spec](spec/modules/M6-store/spec.md):** the "Open questions" section now says there are none.
+- **PR description:** updated to say G1 and G2 are confirmed.
+
+The other spec changes stay as built, as you chose. As agreed, I'll wait for you to review and merge #6, then start M7 (`ingest`) on a new branch off `main`.
+
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv7.txt in conversations folder
+
+  [tool: Bash] [Check conversations folder and existing export format]
+  $ ls -la conversations 2>&1; ls; head -c 3000 conversations/conv1.txt 2>/dev/null; git status --short
+  [result]:
+    total 164
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 02:01 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 01:57 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 70905 Nov 26 01:59 conv1.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 75430 Nov 26 02:00 conv2.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121  8907 Nov 26 02:01 conv3.txt
+    README.md
+    actiontrack
+    conversations
+    notes
+    pyproject.toml
+    scripts
+    spec
+    tests
+    uv.lock
+    actiontrack — Conversation 1 (spec & SDD planning)
+    Session: 07eac96f-814b-4807-ae16-5a0afaba949a
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo (spec/).
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    Scenario
+    
+    
+    Your team's meeting notes pile up as markdown files. Action items get lost, and follow-up emails are written late or not at all. You will build a small CLI tool, actiontrack, that reads meeting notes, tracks the action items, and drafts follow-up emails for review.
+    
+    
+    What you build
+    
+    
+    A CLI with four commands:
+    
+    
+    1. actiontrack ingest <folder> parses every .md meeting note in the folder. Each note has
+       a date, attendees and free- appear as lines like - [ ]Priya to send the revised quote by Friday. The tool stores them with owner, task, due
+       date (resolved to a real daurce file and status.
+    2. actiontrack list shows items. Filters: --owner, --status open|done|overdue,
+    ... [36 more lines]
+
+  [tool: Bash] [Look for an export script and session transcripts]
+  $ ls scripts; head -5 conversations/conv2.txt conversations/conv3.txt; ls ~/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/ | tail -20
+  [result]:
+    __pycache__
+    trace_check.py
+    ==> conversations/conv2.txt <==
+    actiontrack — Conversation 2 (M1 note loader: implement, PR, merge)
+    Session: ba1cdb32-a9c1-4616-af83-fda2d6eff3eb
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+    ====================================================================================================
+    
+    ==> conversations/conv3.txt <==
+    actiontrack — Conversation 3 (M2 people & owner resolution: implement, PR, merge)
+    Session: 0d30c101-070d-4348-b012-7e9f7822358a
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+    ====================================================================================================
+    04b88705-fbd0-4fea-b5b0-7866965db888.jsonl
+    07eac96f-814b-4807-ae16-5a0afaba949a.jsonl
+    0bdf4b63-da21-46b6-8c2c-4c976b9b21e3.jsonl
+    0d30c101-070d-4348-b012-7e9f7822358a.jsonl
+    40fa2a55-2010-4d82-bbef-9c8d278b7bbe
+    40fa2a55-2010-4d82-bbef-9c8d278b7bbe.jsonl
+    4c26c3e8-6b95-48b9-ad03-18e3442b2cb6.jsonl
+    702b62e6-f52e-4636-84e6-2ca9a59935a3
+    702b62e6-f52e-4636-84e6-2ca9a59935a3.jsonl
+    ba1cdb32-a9c1-4616-af83-fda2d6eff3eb.jsonl
+    eb6d3963-2525-46ad-aa49-126469eeb8c7.jsonl
+    f9a42155-df89-4707-9ee1-ad5b8ae48bb5.jsonl
+    fb5f7051-92b3-4b92-956b-4bd9e245f133.jsonl
+    fbcc87aa-8b24-49a1-a21c-d98a23ff3366.jsonl
+    fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6.jsonl
+    fc60775a-5ec3-4fb9-ab44-e0af09b2fdce.jsonl
+    ffc43fb1-0a8a-431d-a4a8-4cd3e0395e97.jsonl
+    memory
+
+CLAUDE:
+This session's transcript is `fb5f7051….jsonl`. There's no export script in the repo, so I'll write one in the scratchpad that matches the format of conv1–3. First, a closer look at that format.
+
+  [tool: Bash] [Inspect export format for tool calls and answers]
+  $ grep -n "\[tool: \(Write\|Edit\|Read\|Ask\|Grep\|Glob\|Agent\|Artifact\)" conversations/conv2.txt | head -8; grep -n "truncated\|\.\.\. (" conversations/conv2.txt | head -5; sed -n '/\[tool: Write\]/,+12p' conversations/conv2.txt | head -30; sed -n '/User answered\|A:/,+3p' conversations/conv1.txt | head -12; tail -30 conversations/conv3.txt
+  [result]:
+    314:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\__init__.py  (63 chars — content in repo)
+    315:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\note_loader.py  (9773 chars — content in repo)
+    395:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py  (14301 chars — content in repo)
+    473:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\note_loader.py
+    480:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\spec\modules\M1-note-loader\spec.md
+    484:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py
+    487:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py
+    491:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py
+    388:    ... [truncated, 534 more chars]
+    1204:        s = s if len(s) <= w else s[:w] + f"\n... [truncated, {len(s) - w} more chars]"
+      [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\__init__.py  (63 chars — content in repo)
+      [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\note_loader.py  (9773 chars — content in repo)
+      [result]:
+        File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\__init__.py (file state is current in your context — no need to Read it back)
+    
+      [result]:
+        File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\note_loader.py (file state is current in your context — no need to Read it back)
+    
+    
+    ----------------------------------------------------------------------------------------------------
+    CLAUDE:
+    Now the fixtures and tests.
+    
+      [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py  (14301 chars — content in repo)
+      [result]:
+        File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_note_loader.py (file state is current in your context — no need to Read it back)
+    
+      [tool: Bash] [Run M1 tests with coverage including slow]
+      $ cd "C:/Users/Coditas-Admin/Desktop/actionTracker" && uv run pytest tests/unit/parsing -m "" -q --cov=actiontrack.parsing --cov-report=term-missing 2>&1 | tail -30
+      [result]:
+        ("# 2026-11-18 | Board meeting", "Board meeting"),
+                    ("# Sync: 18th November 2026 - follow-up", "Sync follow-up"),
+                    ("# Kickoff (Nov 18, 2026)", "Kickoff (Nov 18, 2026)"),
+                    ("# 2026-11-18", None),
+                ],
+            )
+    Despite the errors, the PR now shows as MERGED, so one of the earlier attempts went through. I'll sync local main.
+    
+      [tool: Bash] [Switch to main and pull the merge]
+          49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    ... [26 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+An earlier session wrote the exporter, and its source is embedded in conv2.txt (around line 1204). I'll reuse it so the output matches exactly.
+
+  [tool: Bash] [Locate the exporter script in conv2]
+  $ grep -n "tool: Write\].*export\|\.py  (\|def \|^  \$ .*python" conversations/conv2.txt | sed -n '1,200p' | awk -F: '$1>1100' | head -30
+  [result]:
+    1153:  $ cd "C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/" && python -c "
+    1199:    def clean(s):
+    1203:    def short(s, n=40, w=4000):
+    1209:    def tool_summary(name, inp):
+
+  [tool: Bash] [Read exporter script embedded in conv2]
+  $ sed -n 1140,1330p conversations/conv2.txt
+  [result]:
+    - Markdown write-back: Tick the checkboxes in the source notes. Changes the user's files, and dedup gets harder.
+        Q (Gmail MCP): How does the CLI create Gmail drafts through the Gmail MCP connector?
+           - CLI acts as MCP client: The tool connects to a Gmail MCP server itself (stdio/HTTP) and calls create_draft. Needs a server and auth set up.
+        CLAUDE:
+        I have enough to write the spec. I'll fill the remaining small gaps with defaults and mark each one as an assumption in the document.
+        ... [25 more lines]
+    
+    
+    ----------------------------------------------------------------------------------------------------
+    CLAUDE:
+    conv1.txt was generated from the session transcript by a script. I'll write a similar exporter for this session (`ba1cdb32…`) and match that format.
+    
+      [tool: Bash] [Survey transcript record types]
+      $ cd "C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/" && python -c "
+        import json,collections
+        c=collections.Counter()
+        for l in open('ba1cdb32-a9c1-4616-af83-fda2d6eff3eb.jsonl',encoding='utf-8'):
+          d=json.loads(l); m=d.get('message') or {}
+          ct=m.get('content'); kinds=[b.get('type') for b in ct] if isinstance(ct,list) else [type(ct).__name__]
+          c[(d.get('type'), d.get('isSidechain'), d.get('isMeta'), tuple(kinds))]+=1
+        for k,v in c.most_common(): print(v,k)
+        "
+      [result]:
+        43 ('assistant', False, None, ('tool_use',))
+        42 ('api-request', None, None, ('NoneType',))
+        42 ('user', False, None, ('tool_result',))
+        30 ('attachment', False, None, ('NoneType',))
+        27 ('assistant', False, None, ('thinking',))
+        22 ('atis-latch', None, None, ('NoneType',))
+        22 ('last-prompt', None, None, ('NoneType',))
+        21 ('ai-title', None, None, ('NoneType',))
+        18 ('assistant', False, None, ('text',))
+        14 ('queue-operation', None, None, ('NoneType',))
+        7 ('file-history-snapshot', None, None, ('NoneType',))
+        7 ('api-request-blob', None, None, ('text',))
+        5 ('tools-used', None, None, ('NoneType',))
+        5 ('user', False, None, ('text',))
+        5 ('pr-link', None, None, ('NoneType',))
+        4 ('file-history-delta', None, None, ('NoneType',))
+        3 ('mode', None, None, ('NoneType',))
+    ... [36 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The embedded copy is truncated, so I'll rebuild the exporter from the visible parts, keeping the same layout.
+
+  [tool: Bash] [Write exporter and export this session to conv7.txt]
+  $ S="C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/fb5f7051-92b3-4b92-956b-4bd9e245f133/scratchpad/export_conv.py"; mkdir -p "$(dirname "$S")"; cat > "$S" <<'EOF'
+    import json, re, sys
+    
+    src, dst, session, title = sys.argv[1:5]
+    TAGS = re.compile(r"<(system-reminder|ide_opened_file|ide_selection)>.*?</\1>", re.S)
+    SEP = "-" * 100
+    USEP = "#" * 100
+    
+    
+    def clean(s):
+        return TAGS.sub("", s).strip()
+    
+    
+    def short(s, n=40, w=4000):
+        s = s if len(s) <= w else s[:w] + f"\n... [truncated, {len(s) - w} more chars]"
+        lines = s.splitlines()
+        return "\n".join(lines[:n] + ([f"... [{len(lines) - n} more lines]"] if len(lines) > n else []))
+    
+    
+    def indent(s, pad="    "):
+        return "\n".join(pad + l for l in s.splitlines())
+    
+    
+    def tool_summary(name, inp):
+        if name in ("Bash", "PowerShell"):
+            return f"[{inp.get('description', '')}]\n  $ " + short(inp.get("command", ""), 30).replace("\n", "\n    ")
+        if name == "Write":
+            return f"{inp.get('file_path')}  ({len(inp.get('content', ''))} chars — content in repo)"
+        if name == "Edit":
+            return (f"{inp.get('file_path')}\n  old: " + short(inp.get("old_string", ""), 10, 300)
+    ... [55 more lines]

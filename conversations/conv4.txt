@@ -1,0 +1,1099 @@
+actiontrack — Conversation 4 (M3 due dates: implement, PR, merge)
+Session: f9a42155-df89-4707-9ee1-ad5b8ae48bb5
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on m3 module
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll start by looking at the spec layout and the M3 module spec.
+
+  [tool: Bash] [List repo structure and recent commits]
+  $ ls && ls spec spec/modules spec/modules/* && cat CLAUDE.md 2>/dev/null | head -100 && git log --oneline -8
+  [result]:
+    README.md
+    actiontrack
+    pyproject.toml
+    spec
+    tests
+    uv.lock
+    spec:
+    modules
+    plan.md
+    requirements.md
+    
+    spec/modules:
+    M0-foundation
+    M1-note-loader
+    M10-gmail-mcp
+    M11-followup
+    M12-e2e-release
+    M2-people
+    M3-dates
+    M4-item-extraction
+    M5-dedup
+    M6-store
+    M7-ingest
+    M8-list-done
+    M9-email-render
+    
+    spec/modules/M0-foundation:
+    spec.md
+    tasks.md
+    tests.md
+    
+    spec/modules/M1-note-loader:
+    spec.md
+    tasks.md
+    tests.md
+    
+    spec/modules/M10-gmail-mcp:
+    spec.md
+    tasks.md
+    tests.md
+    ... [58 more lines]
+
+  [tool: Bash] [Read M3 spec, tasks, tests and the plan]
+  $ cat spec/modules/M3-dates/*.md && cat spec/plan.md
+  [result]:
+    # M3 — Due-Date Extraction & Resolution
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M0 |
+    | **Files** | `actiontrack/parsing/dates.py` |
+    | **REQ IDs** | REQ-DATE-01 … 06 |
+    
+    ## 1. Purpose
+    Find the due phrase in an action item's text, and resolve it to a real date **anchored on the meeting date**, using
+    deterministic rules. Also parse user-supplied dates for `list --due-before`.
+    
+    ## 2. Interface
+    
+    ```python
+    def extract_due(text: str, *, anchor: date, date_order: Literal["DMY", "MDY"] = "DMY") -> DueResolution
+        # DueResolution.span → the char range to remove from the text when building the task (M4)
+    def resolve_expr(expr: str, *, anchor: date, date_order: Literal["DMY", "MDY"] = "DMY") -> date | None
+    def parse_user_date(text: str, *, today: date, date_order: Literal["DMY", "MDY"] = "DMY") -> date
+        # raises UserInputError on failure; anchored on today
+    ```
+    
+    ## 3. Phrase detection (REQ-DATE-01)
+    
+    Searched case-insensitively. When several phrases match, the **last** one in the text wins (due phrases are usually at the end).
+    
+    | Kind | Pattern (simplified) | Example |
+    |---|---|---|
+    | Connector + expression | `\b(by|before|due(?: on| by)?|until|no later than|deadline:?)\s+<expr>` | `by Friday`, `due 12 Dec` |
+    | `on` + date-like expression only | `\bon\s+<datelike>` where datelike starts with a weekday, a month name or a digit | `on 3 Dec`. **Not** `work on the deck` |
+    | Standalone keyword | `\b(EOD|EOW|EOM|end of (?:the )?(day|week|month)|end of next week|tomorrow|today|next week|ASAP)\b` | `send deck EOW` |
+    | Bare ISO date | `\b\d{4}-\d{2}-\d{2}\b` | `ship 2026-12-01` |
+    
+    `<expr>` runs to the end of the text, or to the first `,` `;` `(` or ` - `, with trailing `.`/`!` removed.
+    `due_raw` = the matched phrase as written (e.g. `by Friday`).
+    
+    ## 4. Resolution rules (REQ-DATE-02 … 06)
+    
+    Relative keywords are handled by **our own rules** (deterministic). Only absolute/calendar expressions go to `dateparser`.
+    ... [40 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now let me look at the existing code conventions (models, errors, M2 implementation and tests).
+
+  [tool: Bash] [List source files and read models, errors, pyproject]
+  $ find actiontrack tests -type f -not -path '*/__pycache__/*' | sort && cat pyproject.toml && cat actiontrack/models.py actiontrack/errors.py
+  [tool: Bash] [Read M2 implementation and test style]
+  $ cat actiontrack/parsing/people.py | head -150 && head -80 tests/unit/parsing/test_people.py && git show --stat HEAD~1 | head -30
+  [result]:
+    actiontrack/__init__.py
+    actiontrack/__main__.py
+    actiontrack/cli.py
+    actiontrack/clock.py
+    actiontrack/config.py
+    actiontrack/console.py
+    actiontrack/errors.py
+    actiontrack/models.py
+    actiontrack/parsing/__init__.py
+    actiontrack/parsing/note_loader.py
+    actiontrack/parsing/people.py
+    tests/__init__.py
+    tests/conftest.py
+    tests/fixtures/notes/loader/attendees_heading.md
+    tests/fixtures/notes/loader/bold_date_line.md
+    tests/fixtures/notes/loader/date_no_year.md
+    tests/fixtures/notes/loader/empty_attendees.md
+    tests/fixtures/notes/loader/frontmatter_list.md
+    tests/fixtures/notes/loader/frontmatter_valid.md
+    tests/fixtures/notes/loader/heading_layout.md
+    tests/fixtures/notes/loader/hr_in_body.md
+    tests/fixtures/notes/loader/line_numbers.md
+    tests/fixtures/notes/loader/no_attendees.md
+    tests/fixtures/notes/loader/no_date.md
+    tests/fixtures/notes/loader/slash_date.md
+    tests/fixtures/notes/loader/unclosed_frontmatter.md
+    tests/fixtures/notes/loader/vague_date.md
+    tests/fixtures/notes/loader/yaml_error.md
+    tests/unit/__init__.py
+    tests/unit/core/__init__.py
+    tests/unit/core/test_cli.py
+    tests/unit/core/test_config.py
+    tests/unit/core/test_console.py
+    tests/unit/core/test_errors_clock.py
+    tests/unit/core/test_models.py
+    tests/unit/parsing/__init__.py
+    tests/unit/parsing/test_note_loader.py
+    tests/unit/parsing/test_people.py
+    [project]
+    name = "actiontrack"
+    ... [112 more lines]
+
+  [result]:
+    """Attendee parsing, per-note rosters and owner resolution (M2 spec).
+    
+    Every person gets a key: their explicit email (lowercased), else the email derived from their
+    full name, else `name:<first name>` for a first-name-only attendee (gap G1).
+    """
+    
+    from __future__ import annotations
+    
+    import re
+    import unicodedata
+    from collections.abc import Iterable, Sequence
+    
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import Attendee, Flag, OwnerResolution
+    
+    _EMAIL = r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+"
+    _EMAIL_FULL = re.compile(rf"^{_EMAIL}$")
+    # The email plus the brackets around it, if any: `<a@b.c>` or `(a@b.c)`.
+    _EMAIL_IN_TEXT = re.compile(rf"[<(]?\s*({_EMAIL})\s*[>)]?")
+    _TRAILING_ROLE = re.compile(r"\s*\([^()]*\)\s*$")
+    _LOCAL_PART_SEPARATORS = re.compile(r"[._]+")
+    _APOSTROPHES = re.compile("['\u2019\u2018`]")
+    _EMAIL_PART_SEPARATORS = re.compile(r"[\s\-\u2010-\u2015]+")
+    _NOT_EMAIL_CHAR = re.compile(r"[^a-z0-9]")
+    # `First L` or `First L.`: a first name and a last-name initial.
+    _FIRST_AND_INITIAL = re.compile(r"^(\S+)\s+(\w)\.?$")
+    _EDGE_PUNCTUATION = " \t_,;:"
+    
+    
+    def normalize_name(s: str) -> str:
+        """Casefold, strip accents and collapse whitespace, for comparing names."""
+        return " ".join(_strip_accents(s).casefold().split())
+    
+    
+    def derive_email(full_name: str, *, domain: str) -> str:
+        """`Anna-Maria López` → `anna.maria.lopez@<domain>`. Raises if there is no last name."""
+        text = _APOSTROPHES.sub("", _strip_accents(full_name).lower())
+        parts = [_NOT_EMAIL_CHAR.sub("", p) for p in _EMAIL_PART_SEPARATORS.split(text)]
+        parts = [p for p in parts if p]
+        if len(parts) < 2:
+    ... [58 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Let me check the state of PR #2 and whether M1 uses dateparser already (for idioms).
+
+  [tool: Bash] [Check PR #2 state and dateparser usage in M1]
+  $ gh pr view 2 --json state,mergedAt 2>&1; git fetch -q && git log --oneline origin/main -3; grep -n "dateparser" -A12 actiontrack/parsing/note_loader.py | head -50; git diff HEAD~1 -- spec/modules/M2-people/spec.md
+  [result]:
+    {"mergedAt":null,"state":"OPEN"}
+    4877a8e M0: mark T0.12 done and record merge in status board
+    5cfe703 M1: tick T1.9 and link PR #1 on the status board
+    79eea25 Merge pull request #1 from mohit-gupta-coditas/feat/m1-note-loader
+    159:    """ISO `YYYY-MM-DD` first, then strict `dateparser` (day, month and year). Never raises."""
+    160-    iso = _ISO_DATE.search(text)
+    161-    if iso is not None:
+    162-        try:
+    163-            return date.fromisoformat(iso.group())
+    164-        except ValueError:
+    165-            return None
+    166-    try:
+    167:        import dateparser  # slow import; only needed for non-ISO dates
+    168-
+    169:        parsed = dateparser.parse(
+    170-            text,
+    171-            settings={
+    172-                "STRICT_PARSING": True,
+    173-                "DATE_ORDER": date_order,
+    174-                "PREFER_DAY_OF_MONTH": "first",
+    175-                "REQUIRE_PARTS": ["day", "month", "year"],
+    176-                # No relative dates ("tomorrow"): a meeting date must not depend on the clock
+    177-                "PARSERS": ["absolute-time"],
+    178-            },
+    179-        )
+    180-    except Exception:
+    181-        return None
+
+  [tool: Bash] [Create branch and probe dateparser behaviour]
+  $ git checkout -q -b feat/m3-dates && cat > "$TEMP/dp.py" <<'EOF'
+    from datetime import datetime, date, time
+    import dateparser
+    A = datetime.combine(date(2026,11,18), time())
+    for order in ("DMY","MDY"):
+        s = {"RELATIVE_BASE": A, "PREFER_DATES_FROM": "future", "DATE_ORDER": order, "STRICT_PARSING": False, "RETURN_TIME_AS_PERIOD": False}
+        for e in ["12 Dec","Dec 12","12th December","5 Jan","12 dec 2026","03/04/2027","3/4","03/04/27","18 Nov","17 nov","the blue moon","the team","29 feb", "12.12.2026"]:
+            print(order, repr(e), dateparser.parse(e, settings=s))
+    EOF
+    uv run python "$TEMP/dp.py"
+  [result]:
+    DMY '12 Dec' 2026-12-12 00:00:00
+    DMY 'Dec 12' 2026-12-12 00:00:00
+    DMY '12th December' 2026-12-12 00:00:00
+    DMY '5 Jan' 2027-01-05 00:00:00
+    DMY '12 dec 2026' 2026-12-12 00:00:00
+    DMY '03/04/2027' 2027-04-03 00:00:00
+    DMY '3/4' 2027-04-03 00:00:00
+    DMY '03/04/27' 2027-04-03 00:00:00
+    DMY '18 Nov' 2027-11-18 00:00:00
+    DMY '17 nov' 2027-11-17 00:00:00
+    DMY 'the blue moon' None
+    DMY 'the team' None
+    DMY '29 feb' 2028-02-29 00:00:00
+    DMY '12.12.2026' 2026-12-12 00:00:00
+    MDY '12 Dec' 2026-12-12 00:00:00
+    MDY 'Dec 12' 2026-12-12 00:00:00
+    MDY '12th December' 2026-12-12 00:00:00
+    MDY '5 Jan' 2027-01-05 00:00:00
+    MDY '12 dec 2026' 2026-12-12 00:00:00
+    MDY '03/04/2027' 2027-03-04 00:00:00
+    MDY '3/4' 2027-03-04 00:00:00
+    MDY '03/04/27' 2027-03-04 00:00:00
+    MDY '18 Nov' 2027-11-18 00:00:00
+    MDY '17 nov' 2027-11-17 00:00:00
+    MDY 'the blue moon' None
+    MDY 'the team' None
+    MDY '29 feb' 2028-02-29 00:00:00
+    MDY '12.12.2026' 2026-12-12 00:00:00
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+As expected, `dateparser` sends `18 Nov` (on the anchor day) to 2027, but the spec says "on or after A". So for dates without a year I'll pick the year myself. Now the tests (T3.1):
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_dates.py  (9470 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_dates.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Correction to one of my own expectations: "end of next week" anchored Sat 11-21 is the Friday of the week after A's week, which is 11-27, not 12-04.
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_dates.py
+  old:         ("end of next week", SAT, date(2026, 12, 4)),
+  new:         ("end of next week", SAT, date(2026, 11, 27)),
+        ("end of next week", date(2026, 11, 23), date(2026, 12, 4)),
+  [tool: Bash] [Confirm tests fail before implementation (red)]
+  $ uv run pytest tests/unit/parsing/test_dates.py -q 2>&1 | tail -5
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_dates.py has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [result]:
+    E   ModuleNotFoundError: No module named 'actiontrack.parsing.dates'
+    =========================== short test summary info ===========================
+    ERROR tests/unit/parsing/test_dates.py
+    !!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+    1 error in 0.55s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Red as expected. Now the implementation:
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\dates.py  (6916 chars — content in repo)
+  [tool: Bash] [Run M3 tests with coverage]
+  $ uv run pytest tests/unit/parsing/test_dates.py -q --cov=actiontrack.parsing.dates --cov-report=term-missing 2>&1 | tail -25
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\dates.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    ....................................................................     [100%]
+    =============================== tests coverage ================================
+    ______________ coverage: platform win32, python 3.12.10-final-0 _______________
+    
+    Name                           Stmts   Miss  Cover   Missing
+    ------------------------------------------------------------
+    actiontrack\parsing\dates.py     101      4    96%   159-160, 162, 173
+    ------------------------------------------------------------
+    TOTAL                            101      4    96%
+    68 passed in 3.84s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+68/68 passing, 96% coverage. Now the full quality gate:
+
+  [tool: Bash] [Run ruff, mypy and the full test suite]
+  $ uv run ruff check . ; uv run ruff format --check . ; uv run mypy --strict actiontrack ; uv run pytest -q 2>&1 | tail -3
+  [result]:
+    E501 Line too long (102 > 100)
+      --> actiontrack\parsing\dates.py:27:101
+       |
+    25 |     r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+    26 | )
+    27 | _WEEKDAY_INDEX = {name: i for i, name in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
+       |                                                                                                     ^^
+    28 |
+    29 | # The expression after a connector: up to the first `,` `;` `(` or ` - `.
+       |
+    
+    E501 Line too long (102 > 100)
+       --> actiontrack\parsing\dates.py:143:101
+        |
+    142 | def _calendar_date(e: str, *, anchor: date, date_order: DateOrder) -> date | None:
+    143 |     """`12 Dec`, `Dec 12 2026`, `03/04/2027`, `3/4`. Without a year: the first one on/after anchor."""
+        |                                                                                                     ^^
+    144 |     if not (_NUMERIC_DATE.search(e) or (_MONTH_WORD.search(e) and any(c.isdigit() for c in e))):
+    145 |         return None
+        |
+    
+    Found 2 errors.
+    unformatted: File would be reformatted
+      --> actiontrack\parsing\dates.py:27:19
+       |
+    26 | )
+       - _WEEKDAY_INDEX = {name: i for i, name in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
+    27 + _WEEKDAY_INDEX = {
+    28 +     name: i for i, name in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))
+    29 + }
+    30 |
+       |
+    
+    unformatted: File would be reformatted
+       --> tests\unit\parsing\test_dates.py:35:48
+        |
+    34  |         pytest.param(
+        -             "send the revised quote by Friday", WED, "DMY", date(2026, 11, 20), "by Friday",
+    35  +             "send the revised quote by Friday",
+    36  +             WED,
+    ... [60 more lines]
+
+  [tool: Bash] [Compact the TC table, fix long lines, re-run gate]
+  $ uv run python - <<'EOF'
+    import re, pathlib
+    p = pathlib.Path("tests/unit/parsing/test_dates.py")
+    s = p.read_text()
+    start = s.index("@pytest.mark.parametrize(\n    (\"text\", \"anchor\", \"order\", \"expected\", \"raw\"),")
+    end = s.index("def test_extract_due_resolves(")
+    block = s[start:end]
+    rows = re.findall(r'pytest\.param\(\s*(.*?),\s*id="(TC_M3_\d+)_\w+",\s*\)', block, re.S)
+    lines = []
+    for args, tc in rows:
+        args = " ".join(args.split())
+        lines.append(f'    ("{tc}", {args}),')
+    table = (
+        "RESOLVED = [\n    # (TC, text, anchor, date_order, due_date, due_raw)\n"
+        + "\n".join(lines)
+        + "\n]\n\n\n@pytest.mark.parametrize(\n"
+        '    ("text", "anchor", "order", "expected", "raw"),\n'
+        "    [pytest.param(*row[1:], id=row[0]) for row in RESOLVED],\n)\n"
+    )
+    p.write_text(s[:start] + table + s[end:])
+    EOF
+    sed -i 's/^_WEEKDAY_INDEX = .*$/_WEEKDAY_INDEX = {d: i for i, d in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}/; s|"""`12 Dec`, `Dec 12 2026`, `03/04/2027`, `3/4`. Without a year: the first one on/after anchor."""|"""`12 Dec`, `03/04/2027`, `3/4`. Without a year: the first occurrence on or after anchor."""|' actiontrack/parsing/dates.py
+    uv run ruff format . && uv run ruff check . && uv run ruff format --check . && sed -n 28,55p tests/unit/parsing/test_dates.py && uv run pytest -q 2>&1 | tail -2
+  [result] (error):
+    Exit code 2
+    error: Failed to parse tests\unit\parsing\test_dates.py:37:56: Expected `,`, found `=`
+    40 files left unchanged
+
+  [tool: Read] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_dates.py
+  [result]:
+    28	# --- extract_due: resolved phrases ----------------------------------------------------------
+    29	
+    30	
+    31	RESOLVED = [
+    32	    # (TC, text, anchor, date_order, due_date, due_raw)
+    33	    ("TC_M3_01", "send the revised quote by Friday", WED, "DMY", date(2026, 11, 20), "by Friday"),
+    34	    ("TC_M3_02", "send quote by Friday", FRI, "DMY", date(2026, 11, 27), "by Friday"),
+    35	    ("TC_M3_03", "send quote by Monday", WED, "DMY", date(2026, 11, 23), "by Monday"),
+    36	    ("TC_M3_04", "send quote by next Friday", WED, "DMY", date(2026, 11, 27), "by next Friday"),
+    37	    ("TC_M3_08", "deck EOD", WED, "DMY", WED, "EOD", id="TC_M3_05_eod"), pytest.param("deck EOW", WED, "DMY", date(2026, 11, 20), "EOW", id="TC_M3_06_eow"), pytest.param( "deck EOW", SAT, "DMY", date(2026, 11, 27), "EOW", id="TC_M3_07_eow_on_weekend" ), pytest.param( "deck by next week", WED, "DMY", date(2026, 11, 23), "by next week"),
+    38	    ("TC_M3_09", "deck by end of month", WED, "DMY", date(2026, 11, 30), "by end of month"),
+    39	    ("TC_M3_10", "deck by end of next week", WED, "DMY", date(2026, 11, 27), "by end of next week"),
+    40	    ("TC_M3_11", "deck by tomorrow", WED, "DMY", date(2026, 11, 19), "by tomorrow"),
+    41	    ("TC_M3_12", "renew licence by 5 Jan", date(2026, 12, 16), "DMY", date(2027, 1, 5), "by 5 Jan"),
+    42	    ("TC_M3_13", "renew by 12 Dec", WED, "DMY", date(2026, 12, 12), "by 12 Dec"),
+    43	    ("TC_M3_14", "renew due 2026-12-01", date(2027, 6, 1), "DMY", date(2026, 12, 1), "due 2026-12-01"),
+    44	    ("TC_M3_15", "renew by 03/04/2027", WED, "DMY", date(2027, 4, 3), "by 03/04/2027"),
+    45	    ("TC_M3_16", "renew by 03/04/2027", WED, "MDY", date(2027, 3, 4), "by 03/04/2027"),
+    46	    ("TC_M3_18", "review on 3 Dec", WED, "DMY", date(2026, 12, 3), "on 3 Dec"),
+    47	    ("TC_M3_22", "draft by Monday, review by Friday", WED, "DMY", date(2026, 11, 20), "by Friday"),
+    48	    ("TC_M3_23", "send quote by Friday.", WED, "DMY", date(2026, 11, 20), "by Friday"),
+    49	]
+    50	
+    51	
+    52	@pytest.mark.parametrize(
+    53	    ("text", "anchor", "order", "expected", "raw"),
+    54	    [pytest.param(*row[1:], id=row[0]) for row in RESOLVED],
+    55	)
+    56	def test_extract_due_resolves(
+    57	    text: str, anchor: date, order: Literal["DMY", "MDY"], expected: date, raw: str
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+My regex merged the single-line params (05–07). I'll fix those rows by hand and also wrap the two rows that are over 100 chars:
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_dates.py
+  old:     ("TC_M3_08", "deck EOD", WED, "DMY", WED, "EOD", id="TC_M3_05_eod"), pytest.param("deck EOW", WED, "DMY", date(2026, 11, 20), "EOW", id="TC_M3_06_eow"), pytest.param( "deck EOW", SAT, "DMY", date(2026, 11, 27), "EOW", id="TC_M3_07_eow_on_weekend" ), pytest.param( "deck by next week", WED, "DMY",
+... [truncated, 603 more chars]
+  new:     ("TC_M3_05", "deck EOD", WED, "DMY", WED, "EOD"),
+    ("TC_M3_06", "deck EOW", WED, "DMY", date(2026, 11, 20), "EOW"),
+    ("TC_M3_07", "deck EOW", SAT, "DMY", date(2026, 11, 27), "EOW"),
+    ("TC_M3_08", "deck by next week", WED, "DMY", date(2026, 11, 23), "by next week"),
+    ("TC_M3_09", "dec
+... [truncated, 603 more chars]
+  [tool: Bash] [Format, lint, type-check and re-run tests]
+  $ uv run ruff format . && uv run ruff check . && uv run mypy --strict actiontrack && sed -n 31,52p tests/unit/parsing/test_dates.py && sed -n 25,30p actiontrack/parsing/dates.py && uv run pytest -q tests/unit/parsing/test_dates.py --cov=actiontrack.parsing.dates 2>&1 | tail -4 && uv run pytest -q 2>&1 | tail -1
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_dates.py has been updated successfully.
+
+  [result]:
+    1 file reformatted, 40 files left unchanged
+    All checks passed!
+    Success: no issues found in 12 source files
+    RESOLVED = [
+        # (TC, text, anchor, date_order, due_date, due_raw)
+        ("TC_M3_01", "send the revised quote by Friday", WED, "DMY", date(2026, 11, 20), "by Friday"),
+        ("TC_M3_02", "send quote by Friday", FRI, "DMY", date(2026, 11, 27), "by Friday"),
+        ("TC_M3_03", "send quote by Monday", WED, "DMY", date(2026, 11, 23), "by Monday"),
+        ("TC_M3_04", "send quote by next Friday", WED, "DMY", date(2026, 11, 27), "by next Friday"),
+        ("TC_M3_05", "deck EOD", WED, "DMY", WED, "EOD"),
+        ("TC_M3_06", "deck EOW", WED, "DMY", date(2026, 11, 20), "EOW"),
+        ("TC_M3_07", "deck EOW", SAT, "DMY", date(2026, 11, 27), "EOW"),
+        ("TC_M3_08", "deck by next week", WED, "DMY", date(2026, 11, 23), "by next week"),
+        ("TC_M3_09", "deck by end of month", WED, "DMY", date(2026, 11, 30), "by end of month"),
+        ("TC_M3_10", "deck by end of next week", WED, "DMY", date(2026, 11, 27), "by end of next week"),
+        ("TC_M3_11", "deck by tomorrow", WED, "DMY", date(2026, 11, 19), "by tomorrow"),
+        ("TC_M3_12", "renew licence by 5 Jan", date(2026, 12, 16), "DMY", date(2027, 1, 5), "by 5 Jan"),
+        ("TC_M3_13", "renew by 12 Dec", WED, "DMY", date(2026, 12, 12), "by 12 Dec"),
+        # Anchored after the date: an ISO date is never moved.
+        (
+            "TC_M3_14",
+            "renew due 2026-12-01",
+            date(2027, 6, 1),
+            "DMY",
+            date(2026, 12, 1),
+        r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+    )
+    _WEEKDAY_INDEX = {d: i for i, d in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
+    
+    # The expression after a connector: up to the first `,` `;` `(` or ` - `.
+    _EXPR = r"(?P<expr>(?:(?! - )[^,;(])+)"
+    actiontrack\parsing\dates.py     101      4    96%
+    --------------------------------------------------
+    TOTAL                            101      4    96%
+    68 passed in 4.25s
+    273 passed, 1 deselected in 11.74s
+    [This command modified 1 file you've previously read: tests\unit\parsing\test_dates.py. Call Read before editing.]
+
+  [tool: Bash] [See how M2 recorded spec notes and ticked tasks]
+  $ git diff HEAD~2 HEAD~1 -- spec/modules/M2-people/spec.md spec/modules/M2-people/tasks.md spec/plan.md
+  [result]:
+    diff --git a/spec/modules/M2-people/spec.md b/spec/modules/M2-people/spec.md
+    index 30c8f01..7382974 100644
+    --- a/spec/modules/M2-people/spec.md
+    +++ b/spec/modules/M2-people/spec.md
+    @@ -75,6 +75,18 @@ Accepted forms (surrounding whitespace, `*`/`_` emphasis and a trailing role in
+     - `José` vs `Jose` → equal after normalization.
+     - The roster has one Priya, and the owner is `Priya Nair`, who isn't an attendee → rule 5, not rule 4.
+     - Two attendees with identical full names and no emails → treated as the same person (same derived key).
+    +- Rules 1–4 use the same pick: one distinct key → that attendee; 2+ distinct keys → `{AMBIGUOUS_OWNER}` with the
+    +  sorted keys as `candidates` (e.g. `@ps` matching `ps@a.com` and `ps@b.com`, or two `Priya Shah`s with different emails).
+    +- An email owner that matches no attendee → key = the email lowercased, display = owner text, `{OWNER_NOT_ATTENDEE}`.
+    +- An `@handle` that matches no local part falls through to rules 2–6 with the handle read as a name
+    +  (`@rahul` → `Rahul`, `@vikram.rao` → `Vikram Rao`).
+    +- `First L.` where no attendee matches → key None, `{OWNER_NOT_ATTENDEE, UNASSIGNED}`. An initial is not a last name,
+    +  so no email is derived from it (rule 5 does not apply).
+    +- A multi-token owner whose email can't be derived (`Vikram ???`) → treated like rule 6.
+    +- A first-name-only attendee `Priya` matches the owner `Priya` by full name (rule 2), so a roster of `Priya` and
+    +  `Priya Shah` resolves `Priya` to `name:priya`, not to an ambiguity.
+    +- Only entries with the same key merge. `Priya Shah` and `Priya Shah <ps@client.com>` in one note stay two attendees
+    +  (a variant of gap G10).
+     
+     ## 7. Out of scope
+     Finding the owner text inside an item line (M4). Cross-note aliasing (future `people.yaml`, gap G10).
+    diff --git a/spec/modules/M2-people/tasks.md b/spec/modules/M2-people/tasks.md
+    index fcceb0b..ee82912 100644
+    --- a/spec/modules/M2-people/tasks.md
+    +++ b/spec/modules/M2-people/tasks.md
+    @@ -2,10 +2,10 @@
+     
+     Branch: `feat/m2-people`
+     
+    -- [ ] **T2.1 Write failing tests** TC-M2-01 … TC-M2-23.
+    -- [ ] **T2.2 `normalize_name`** (NFKD, accents, casefold, whitespace). Used by everything below.
+    -- [ ] **T2.3 `derive_email`**. → TC-M2-07 … 10
+    -- [ ] **T2.4 `parse_attendee`** (all forms, role/emphasis stripping, key rules). → TC-M2-01 … 06
+    -- [ ] **T2.5 `Roster` construction + duplicate merge**. → TC-M2-21, 22
+    -- [ ] **T2.6 `Roster.resolve` rules 0–6** (the match order in spec §5). → TC-M2-11 … 20, 23
+    -- [ ] **T2.7 Quality gate**: ruff, mypy, coverage ≥ 90%. Update the status board, open the PR.
+    +- [x] **T2.1 Write failing tests** TC-M2-01 … TC-M2-23.
+    +- [x] **T2.2 `normalize_name`** (NFKD, accents, casefold, whitespace). Used by everything below.
+    ... [27 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll follow the same pattern and record the decisions the spec left open (overlapping phrases, year inference, the dateparser gate), then tick the tasks and update the board.
+
+  [tool: Bash] [Add spec notes, tick tasks, update status board]
+  $ uv run python - <<'EOF'
+    import pathlib
+    p = pathlib.Path("spec/modules/M3-dates/spec.md")
+    s = p.read_text(encoding="utf-8")
+    s = s.replace(
+    """`due_raw` = the matched phrase as written (e.g. `by Friday`).
+    """,
+    """`due_raw` = the matched phrase as written (e.g. `by Friday`).
+    
+    Overlapping matches: a keyword, bare ISO date or `on` phrase that ends where a longer phrase ends is part of that phrase
+    and is not a candidate itself. So `by tomorrow`, `by end of next week`, `due 2026-12-01` and `due on 3 Dec` are kept
+    whole, while in `follow up on Monday's notes by Friday` the later `by Friday` wins. A connector expression runs to the
+    end of the text, so `by Monday then ship tomorrow` is one phrase, and it is unresolvable.
+    """)
+    s = s.replace(
+    """`STRICT_PARSING=False`, `RETURN_TIME_AS_PERIOD=False`. Lazily imported.
+    """,
+    """`STRICT_PARSING=False`, `RETURN_TIME_AS_PERIOD=False`. Lazily imported.
+    
+    - Only an expression that has a numeric date (`3/4`, `03/04/2027`) or a month name plus a digit (`12 Dec`) goes to
+      `dateparser`. Anything else (`the blue moon`, `12`, `the team`) is unresolvable without calling it.
+    - Without a year, `dateparser`'s `future` skips the anchor day itself (`18 Nov` said on 18 Nov gives next year). So for a
+      year-less date only the day and month are taken from it, and the year is the first one where the date is on or after A
+      (`29 Feb` → the next leap year).
+    - Weekday names accept the usual abbreviations (`Mon`, `Tues`, `Thurs`, ...).
+    """)
+    p.write_text(s, encoding="utf-8")
+    EOF
+    sed -i 's/^- \[ \]/- [x]/' spec/modules/M3-dates/tasks.md
+    sed -i 's/| \*\*Status\*\* | In progress. M0, M1 and M2 done |/| **Status** | In progress. M0, M1, M2 and M3 done |/; s/^| M3 | Draft | ☐ | ☐ | ☐ | — |/| M3 | Draft | ☑ | ☑ | ☑ | — |/' spec/plan.md
+    ... [1 more lines]
+  [result]:
+    warning: in the working copy of 'spec/modules/M3-dates/tasks.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+     spec/modules/M3-dates/spec.md  | 12 ++++++++++++
+     spec/modules/M3-dates/tasks.md | 14 +++++++-------
+     spec/plan.md                   |  4 ++--
+     3 files changed, 21 insertions(+), 9 deletions(-)
+    6:| **Status** | In progress. M0, M1, M2 and M3 done |
+    44:| [M4](modules/M4-item-extraction/spec.md) | Action item extraction | `parsing/items.py` | M1, M2, M3 | ITEM-01..07 |
+    62:M0 Foundation ───┼─> M3 Dates ──┘                         ├─> M7 Ingest ─> M8 List/Done ─┐
+    72:| 3 | M4 | Needs M1–M3 |
+    85:| M3 | Draft | ☑ | ☑ | ☑ | — |
+    108:| G6 | Meaning of `next Friday` (said on a Wednesday) | The occurrence in the **following calendar week** (Mon-start). `this Friday` / `Friday` = the next occurrence strictly after | M3 |
+    111:| G9 | `ASAP` as a due phrase | Recognised. `due_date` NULL, flag `unparsed_due`, `due_raw = "ASAP"` | M3 |
+    [This command modified 1 file you've previously read: spec\plan.md. Call Read before editing.]
+
+  [tool: Bash] [Commit M3 work on the feature branch]
+  $ git add -A && git commit -q -F - <<'EOF'
+    M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git log --oneline -3 && git status --short
+  [result]:
+    warning: in the working copy of 'spec/modules/M3-dates/tasks.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/parsing/dates.py', LF will be replaced by CRLF the next time Git touches it
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    eb52c66 M2: people & owner resolution (attendee parsing, roster, owner rules, email derivation)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M3 (due-date extraction and resolution) is built and committed on a new branch, `feat/m3-dates`. All 26 test cases pass, along with the rest of the suite (273 tests). ruff, ruff format and `mypy --strict` are clean, and coverage of the new module is 96% (the target is 90%).
+
+**What it does** ([actiontrack/parsing/dates.py](actiontrack/parsing/dates.py)):
+- **Finding the due phrase:** it recognises the four kinds in the spec: words like `by` / `due` / `until` followed by a date, `on` only when a date follows, keywords like `EOW` or `ASAP`, and bare ISO dates. When several match, the last one wins, and trailing `.` / `!` are dropped.
+- **Relative dates** (weekday, `this`/`next <weekday>`, `EOW`, `next week`, `EOM`, and so on) use our own fixed rules, counted from the meeting date.
+- **Calendar dates** (`12 Dec`, `03/04/2027`, `3/4`) are read by `dateparser`, which is only loaded when needed. Numbers follow the DMY/MDY setting.
+- **`parse_user_date`** works the same way but counts from today, and a weekday can mean today. If it can't read the date it raises `UserInputError` with the hint "use YYYY-MM-DD".
+
+**Choices the spec didn't settle.** I wrote these into [spec/modules/M3-dates/spec.md](spec/modules/M3-dates/spec.md):
+1. **Overlapping matches:** a keyword, ISO date or `on` phrase that ends where a longer phrase ends counts as part of it. So `by tomorrow` and `due on 3 Dec` are kept whole, while in `follow up on Monday's notes by Friday` the later `by Friday` wins. The downside: `by Monday then ship tomorrow` becomes one phrase that can't be read as a date, because the spec says the text after `by` runs to the end of the line.
+2. **Dates without a year:** `dateparser` treats a date equal to the meeting day as next year, so `18 Nov` said on 18 Nov gave 2027. The spec wants "on or after the meeting date", so I take only the day and month from `dateparser` and pick the year myself.
+3. **When `dateparser` is called:** only if the text has a numeric date, or a month name plus a digit. Text like `the blue moon` or `12` is marked as an unreadable due date without calling it.
+
+**Branch:** `feat/m3-dates` is stacked on `feat/m2-people`. PR #2 is still open and edits the neighbouring status-board lines in `plan.md`, so branching from `main` would have caused a merge conflict. If #2 is merged with a merge commit, as #1 was, the M3 PR will show only its own commit afterwards.
+
+I've ticked T3.1–T3.7 and updated the status board, but I haven't pushed or opened the PR. Should I push and open it against `main`, noting that it depends on #2?
+
+
+####################################################################################################
+USER:
+merge the PR
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M3 doesn't have a PR yet, and it's stacked on #2. To merge it I'll merge #2 first, then push M3, open its PR, link it on the status board (as was done for M1 and M2), and merge it. First I'll check that #2 can be merged.
+
+  [tool: Bash] [Check PR #2 mergeability and how #1 was merged]
+  $ gh pr view 2 --json number,title,state,mergeable,mergeStateStatus,baseRefName,headRefName,statusCheckRollup,reviewDecision && gh pr view 1 --json mergeCommit,headRefName && git ls-remote --heads origin
+  [result]:
+    {"baseRefName":"main","headRefName":"feat/m2-people","mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","number":2,"reviewDecision":"","state":"MERGED","statusCheckRollup":[],"title":"M2: people & owner resolution"}
+    {"headRefName":"feat/m1-note-loader","mergeCommit":{"oid":"79eea251a1588653ba579890c3d05a2c3487912a"}}
+    83c0dd67d608f820bee4a2f685b33893e865361b	refs/heads/feat/m2-people
+    49ef3a3126d4c82cdd5716c9a8cb6e8b356dbc82	refs/heads/main
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+#2 has already been merged in the meantime, so M3 sits directly on top of `main`. I'll push the branch and open the PR.
+
+  [tool: Bash] [Check branch is current with main]
+  $ git fetch -q && git log --oneline origin/main -3 && git merge-base --is-ancestor origin/main HEAD && echo "up to date with main" || git log --oneline HEAD..origin/main
+  [result]:
+    49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    83c0dd6 M2: link PR #2 on the status board
+    eb52c66 M2: people & owner resolution (attendee parsing, roster, owner rules, email derivation)
+    up to date with main
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Main only has the #2 merge commit on top of my base, so the PR will merge cleanly. Pushing and opening it:
+
+  [tool: Bash] [Push branch and open the M3 pull request]
+  $ git push -q -u origin feat/m3-dates 2>&1 | tail -2; gh pr create --base main --head feat/m3-dates --title "M3: due-date extraction & resolution" --body-file - <<'EOF'
+    Implements [M3 — Due-Date Extraction & Resolution](spec/modules/M3-dates/spec.md) (`actiontrack/parsing/dates.py`), REQ-DATE-01 … 06.
+    
+    ## What's in it
+    - `extract_due` finds the due phrase: a connector + expression (`by`, `before`, `due (on|by)`, `until`, `no later than`, `deadline:`), `on` only before something date-like, keywords (`EOD`/`EOW`/`EOM`/`end of …`/`tomorrow`/`today`/`next week`/`ASAP`), and bare ISO dates. The last phrase wins, and the char span is returned for M4.
+    - Relative expressions use deterministic rules anchored on the meeting date (G6 `next <weekday>` = the following calendar week). G9: `ASAP` → `unparsed_due`.
+    - Calendar dates (`12 Dec`, `03/04/2027`, `3/4`) go through a lazily imported `dateparser`, following `date_order`.
+    - `parse_user_date` for `list --due-before`: anchored on today, a weekday may be today. On failure it raises `UserInputError` with hint `use YYYY-MM-DD`.
+    
+    ## Spec clarifications (added to spec.md)
+    - Overlapping matches: a keyword, ISO date or `on` phrase that ends where a longer phrase ends is part of that phrase (`by tomorrow`, `due on 3 Dec` are kept whole).
+    - Year-less dates take the first year on or after the anchor. `dateparser`'s `future` setting skips the anchor day itself, so the year is chosen by us.
+    - Only expressions with a numeric date, or a month name plus a digit, are sent to `dateparser`.
+    
+    ## Tests
+    `tests/unit/parsing/test_dates.py`: TC-M3-01 … TC-M3-26 plus extra detection and resolution cases. 68 tests; the full suite is 273 passed. ruff, ruff format and `mypy --strict` are clean. `dates.py` coverage is 96%.
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+    EOF
+  [result]:
+    remote:      https://github.com/mohit-gupta-coditas/actiontrack-py/pull/new/feat/m3-dates        
+    remote: 
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/3
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+PR #3 is open. I'll link it on the status board (the same follow-up M1 and M2 got), push, and then merge with a merge commit, as #1 and #2 were.
+
+  [tool: Bash] [Link PR #3 on status board, push, check mergeability]
+  $ sed -i 's#^| M3 | Draft | ☑ | ☑ | ☑ | — |#| M3 | Draft | ☑ | ☑ | ☑ | [\#3](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/3) |#' spec/plan.md && git diff --stat && git commit -qam "M3: link PR #3 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>&1 | tail -1; gh pr view 3 --json mergeable,mergeStateStatus,statusCheckRollup
+  [result]:
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    On branch main
+    Your branch is up to date with 'origin/main'.
+    
+    nothing to commit, working tree clean
+    {"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":[]}
+    [This command modified 1 file you've previously read: spec\plan.md. Call Read before editing.]
+
+  [tool: Bash] [Inspect current branch and M3 branch state]
+  $ git status -sb | head -3 && git log --oneline -2 && git log --oneline -2 feat/m3-dates && git log --oneline -1 origin/feat/m3-dates
+  [result]:
+    ## main...origin/main
+     M spec/plan.md
+    49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    83c0dd6 M2: link PR #2 on the status board
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+`main` now shows `plan.md` as modified, probably just line endings rewritten by my `sed`. I'll confirm before touching it:
+
+  [tool: Bash] [Inspect the plan.md modification on main]
+  $ git diff --stat spec/plan.md; git diff --ignore-all-space --ignore-cr-at-eol --stat spec/plan.md; echo "---"; git diff spec/plan.md | head -20
+  [result]:
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    ---
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The change is line endings only, with no content difference. I'll restore it, switch back to the M3 branch, and redo the status-board link there:
+
+  [tool: Bash] [Switch to M3 branch, link PR, commit and push]
+  $ git checkout -q -- spec/plan.md && git checkout -q feat/m3-dates && sed -i 's#^| M3 | Draft | ☑ | ☑ | ☑ | — |#| M3 | Draft | ☑ | ☑ | ☑ | [\#3](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/3) |#' spec/plan.md && git diff --ignore-cr-at-eol spec/plan.md | grep '^[-+]|' && git commit -qam "M3: link PR #3 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>&1 | tail -1; git log --oneline -2 origin/feat/m3-dates; gh pr view 3 --json mergeable,mergeStateStatus
+  [result]:
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    -| M3 | Draft | ☑ | ☑ | ☑ | — |
+    +| M3 | Draft | ☑ | ☑ | ☑ | [#3](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/3) |
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    error: failed to push some refs to 'https://github.com/mohit-gupta-coditas/actiontrack-py.git'
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    {"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE"}
+    [This command modified 3 files you've previously read: spec\plan.md, tests\unit\parsing\test_dates.py, actiontrack\parsing\dates.py. Call Read before editing.]
+
+  [tool: Bash] [Show branch state and the push error]
+  $ git status -sb | head -3; git log --oneline -3; git push origin feat/m3-dates 2>&1 | tail -8
+  [result]:
+    ## feat/m3-dates...origin/feat/m3-dates [ahead 1]
+    f26ab9d M3: link PR #3 on the status board
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    To https://github.com/mohit-gupta-coditas/actiontrack-py.git
+       37aa031..f26ab9d  feat/m3-dates -> feat/m3-dates
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The retry pushed fine, so the first failure was transient. The PR shows CLEAN with no required checks. Merging:
+
+  [tool: Bash] [Merge PR #3 with a merge commit]
+  $ gh pr merge 3 --merge && gh pr view 3 --json state,mergeCommit,mergedAt
+  [result] (error):
+    Exit code 1
+    non-200 OK status code: 502 Bad Gateway body: "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The GitHub API returned a 502. Before retrying, I'll check whether the merge went through anyway:
+
+  [tool: Bash] [Check PR #3 state after the 502]
+  $ gh pr view 3 --json state,mergeCommit,mergedAt,headRefOid
+  [result]:
+    {"headRefOid":"37aa031f629dd7f6bd00887f586406208abce9c7","mergeCommit":null,"mergedAt":null,"state":"OPEN"}
+
+  [tool: Bash] [Retry merge pinned to the latest head commit]
+  $ git ls-remote origin refs/heads/feat/m3-dates; gh pr view 3 --json headRefOid -q .headRefOid; gh pr merge 3 --merge --match-head-commit f26ab9d6 2>&1 | tail -3; gh pr view 3 --json state,mergeCommit,mergedAt
+  [result]:
+    f26ab9d98338e45cc4907d7b2ad82f9a5bd2bc73	refs/heads/feat/m3-dates
+    37aa031f629dd7f6bd00887f586406208abce9c7
+    GraphQL: Variable $input of type MergePullRequestInput! was provided invalid value for expectedHeadOid (Could not coerce value "f26ab9d6" to GitObjectID)
+    {"mergeCommit":null,"mergedAt":null,"state":"OPEN"}
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+That needs the full SHA. The branch on GitHub is at `f26ab9d`, but the PR still points at the old head, so the PR record is behind. I'll wait for it to catch up, then merge pinned to the full SHA:
+
+  [tool: Bash] [Wait for PR head to sync, then merge pinned]
+  $ for i in $(seq 1 20); do h=$(gh pr view 3 --json headRefOid -q .headRefOid 2>/dev/null); [ "$h" = "f26ab9d98338e45cc4907d7b2ad82f9a5bd2bc73" ] && break; sleep 6; done; echo "head=$h"; gh pr merge 3 --merge --match-head-commit f26ab9d98338e45cc4907d7b2ad82f9a5bd2bc73 2>&1 | tail -3; gh pr view 3 --json state,mergeCommit,mergedAt
+  [result]:
+    head=37aa031f629dd7f6bd00887f586406208abce9c7
+    GraphQL: Something went wrong while executing your query on 2026-11-25T15:50:10Z. Please include `EFDA:C6229:203B8AD:2FB184D:6B0703AF` when reporting this issue.
+    {"mergeCommit":null,"mergedAt":null,"state":"OPEN"}
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+PR #3 is not merged yet. GitHub's API is failing on its end, and I stopped retrying rather than keep hitting it.
+
+- **The merge failed twice.** The first attempt got a 502 Bad Gateway and the second a GraphQL "Something went wrong" error. Both times I checked afterwards: the PR is still open and nothing was merged.
+- **The PR is missing my last commit.** That commit links #3 on the status board in `plan.md`. GitHub has the branch at `f26ab9d`, but after about two minutes the PR still points at the earlier `37aa031`. I'm making the merge accept only `f26ab9d`, so the status board doesn't land on `main` with "—" in the PR column.
+- **Your local checkout:** partway through, it had switched to `main` outside this session. My `sed` had only rewritten the line endings in `spec/plan.md` there, with no content change, and I reverted that. `main` is clean, and you're now on `feat/m3-dates` with everything pushed.
+- **To finish once GitHub recovers** (you can check githubstatus.com), run this or ask me to:
+  ```
+  gh pr merge 3 --merge --match-head-commit f26ab9d98338e45cc4907d7b2ad82f9a5bd2bc73
+  ```
+  You can also click Merge on https://github.com/mohit-gupta-coditas/actiontrack-py/pull/3 once it shows both commits.
+
+Afterwards I'd switch you to `main` and pull, ready for M4.
+
+
+####################################################################################################
+USER:
+run gh pr merge 3 --merge --match-head-commit f26ab9d98338e45cc4907d7b2ad82f9a5bd2bc73
+
+  [tool: Bash] [Merge PR #3 pinned to the latest head commit]
+  $ gh pr merge 3 --merge --match-head-commit f26ab9d98338e45cc4907d7b2ad82f9a5bd2bc73 2>&1 | tail -3; gh pr view 3 --json state,headRefOid,mergeCommit,mergedAt
+  [result]:
+    GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)
+    {"headRefOid":"37aa031f629dd7f6bd00887f586406208abce9c7","mergeCommit":null,"mergedAt":null,"state":"OPEN"}
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+It didn't merge. This time GitHub refused with "Head branch was modified. Review and try the merge again." That's the pin doing its job: GitHub's PR record still shows head `37aa031`, while the branch is at `f26ab9d`, so the merge was blocked instead of going in without the status-board commit. The PR is still open and nothing reached `main`.
+
+GitHub still hasn't caught up with the push a few minutes ago, which fits the earlier 502s. Once the PR page lists both commits (`37aa031` and `f26ab9d`), the same command will work. Tell me when, or I can re-run it now if you'd like another try.
+
+If you'd rather not wait, I can merge #3 without the pin. `main` would get only `37aa031`, and the status board's PR column for M3 would show "—" until I add the link in a follow-up commit on `main`.
+
+
+####################################################################################################
+USER:
+PR was closed and a new PR was made and merged , the previous pr was stuck because of the incident that happend in github
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Thanks, I'll check what landed on `main` and whether the status board still points at the closed #3.
+
+  [tool: Bash] [Verify merged state of main and the new PR]
+  $ git fetch -q --prune && gh pr list --state all --limit 5 --json number,title,state,headRefName,mergedAt && git log --oneline -5 origin/main && git merge-base --is-ancestor f26ab9d origin/main && echo "f26ab9d in main"; git show origin/main:spec/plan.md | grep -n "^| M3 \|Status\*\*"; git status -sb | head -2
+  [result]:
+    [{"headRefName":"feat/m3-dates","mergedAt":"2026-11-25T17:29:43Z","number":3,"state":"MERGED","title":"M3: due-date extraction & resolution"},{"headRefName":"feat/m2-people","mergedAt":"2026-11-25T15:44:41Z","number":2,"state":"MERGED","title":"M2: people & owner resolution"},{"headRefName":"feat/m1-note-loader","mergedAt":"2026-11-25T15:21:17Z","number":1,"state":"MERGED","title":"M1: note loader"}]
+    64e2287 Merge pull request #3 from mohit-gupta-coditas/feat/m3-dates
+    f26ab9d M3: link PR #3 on the status board
+    49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    f26ab9d in main
+    6:| **Status** | In progress. M0, M1, M2 and M3 done |
+    85:| M3 | Draft | ☑ | ☑ | ☑ | [#3](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/3) |
+    ## feat/m3-dates...origin/feat/m3-dates
+
+  [tool: Bash] [Switch to main and fast-forward]
+  $ git checkout -q main && git pull -q --ff-only && git log --oneline -1 && git status -sb | head -1
+  [result]:
+    64e2287 Merge pull request #3 from mohit-gupta-coditas/feat/m3-dates
+    ## main...origin/main
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M3 is on `main` and your checkout is now on an up-to-date `main` (`64e2287`).
+
+It went in through PR #3 itself rather than a new PR: GitHub shows #3 merged at 17:29 UTC with that merge commit, and there's no other PR. If a replacement PR was opened, it didn't merge this. Either way, the status board's link to #3 is correct, so `plan.md` needs no follow-up.
+
+M0–M3 are done, which unblocks M4 (action item extraction), since it needs M1, M2 and M3. M5, M6, M9 and M10 can also start. I'd suggest M4 next.
+
+
+####################################################################################################
+USER:
+did we pull the changes on main
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Yes. I switched your checkout to `main` and pulled (fast-forward only). Local `main` is now at `64e2287` ("Merge pull request #3"), the same commit as `origin/main`, with nothing ahead, behind, or uncommitted.
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv4.txt in conversations folder
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll check the existing exports in `conversations/` for their format, and look for this session's transcript file.
+
+  [tool: Bash] [Inspect conversations folder and locate transcripts]
+  $ ls -la conversations 2>&1; ls; for f in conversations/*; do echo "== $f"; head -30 "$f"; done 2>/dev/null | head -80; ls -t ~/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/*.jsonl | head -3
+  [result]:
+    total 152
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 02:00 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 01:57 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 70905 Nov 26 01:59 conv1.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 75430 Nov 26 02:00 conv2.txt
+    README.md
+    actiontrack
+    conversations
+    notes
+    pyproject.toml
+    scripts
+    spec
+    tests
+    uv.lock
+    == conversations/conv1.txt
+    actiontrack — Conversation 1 (spec & SDD planning)
+    Session: 07eac96f-814b-4807-ae16-5a0afaba949a
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo (spec/).
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    Scenario
+    
+    
+    Your team's meeting notes pile up as markdown files. Action items get lost, and follow-up emails are written late or not at all. You will build a small CLI tool, actiontrack, that reads meeting notes, tracks the action items, and drafts follow-up emails for review.
+    
+    
+    What you build
+    
+    
+    A CLI with four commands:
+    
+    
+    1. actiontrack ingest <folder> parses every .md meeting note in the folder. Each note has
+       a date, attendees and free- appear as lines like - [ ]Priya to send the revised quote by Friday. The tool stores them with owner, task, due
+       date (resolved to a real daurce file and status.
+    2. actiontrack list shows items. Filters: --owner, --status open|done|overdue,
+    ... [39 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+This session's transcript is `f9a42155-….jsonl`, the ID in my scratchpad path. I'll look at more of conv2's layout so conv4 matches it.
+
+  [tool: Bash] [Study conv2 export layout details]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/conversations && grep -n "^ASSISTANT\|^USER\|^####\|\.\.\. \[\|truncated\|more lines" conv2.txt | head -30; sed -n 40,120p conv2.txt; tail -30 conv2.txt
+  [result]:
+    8:####################################################################################################
+    9:USER:
+    55:    ... [23 more lines]
+    100:    ... [22 more lines]
+    145:    ... [127 more lines]
+    190:    ... [38 more lines]
+    235:    ... [63 more lines]
+    358:    ... [98 more lines]
+    388:    ... [truncated, 534 more chars]
+    515:    ........................................................................ [ 92%]
+    553:    ... [2 more lines]
+    746:    ........................................................................ [ 92%]
+    828:####################################################################################################
+    829:USER:
+    890:    ... [9 more lines]
+    905:####################################################################################################
+    906:USER:
+    950:    ... [18 more lines]
+    981:####################################################################################################
+    982:USER:
+    1001:####################################################################################################
+    1002:USER:
+    1021:####################################################################################################
+    1022:USER:
+    1046:####################################################################################################
+    1047:USER:
+    1093:    ... [18 more lines]
+    1145:    ... [25 more lines]
+    1204:        s = s if len(s) <= w else s[:w] + f"\n... [truncated, {len(s) - w} more chars]"
+    1206:        return "\n".join(lines[:n] + ([f"... [{len(lines) - n} more lines]"] if len(lines) > n else []))
+        spec/modules/M12-e2e-release/tasks.md
+        spec/modules/M12-e2e-release/tests.md
+        spec/modules/M2-people/spec.md
+        spec/modules/M2-people/tasks.md
+        spec/modules/M2-people/tests.md
+        spec/modules/M3-dates/spec.md
+        spec/modules/M3-dates/tasks.md
+        spec/modules/M3-dates/tests.md
+        spec/modules/M4-item-extraction/spec.md
+        spec/modules/M4-item-extraction/tasks.md
+    ... [43 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+conv2 was produced by a small export script that converts the session transcript. I'll get that script's full source from the conv2 session so conv4 uses the same format.
+
+  [tool: Bash] [Recover the export script used for conv2]
+  $ cd ~/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker && ls ba1cdb32*.jsonl && python -I - <<'EOF'
+    import json
+    for line in open("ba1cdb32-a9c1-4616-af83-fda2d6eff3eb.jsonl", encoding="utf-8"):
+        d = json.loads(line)
+        msg = d.get("message") or {}
+        c = msg.get("content")
+        if isinstance(c, list):
+            for b in c:
+                if b.get("type") == "tool_use":
+                    s = json.dumps(b.get("input"))
+                    if "tool_summary" in s and "def main" in s or ("TAGS = re.compile" in s):
+                        print(b["input"].get("content") or b["input"].get("command"))
+                        raise SystemExit
+    EOF
+  [result]:
+    ba1cdb32-a9c1-4616-af83-fda2d6eff3eb.jsonl
+    S="C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/ba1cdb32-a9c1-4616-af83-fda2d6eff3eb/scratchpad/export_conv.py" && cat > "$S" <<'EOF'
+    import json, re, sys
+    
+    src, dst = sys.argv[1], sys.argv[2]
+    SESSION = "ba1cdb32-a9c1-4616-af83-fda2d6eff3eb"
+    TAGS = re.compile(r"<(system-reminder|ide_opened_file|ide_selection)>.*?</\1>", re.S)
+    
+    
+    def clean(s):
+        return TAGS.sub("", s).strip()
+    
+    
+    def short(s, n=40, w=4000):
+        s = s if len(s) <= w else s[:w] + f"\n... [truncated, {len(s) - w} more chars]"
+        lines = s.splitlines()
+        return "\n".join(lines[:n] + ([f"... [{len(lines) - n} more lines]"] if len(lines) > n else []))
+    
+    
+    def tool_summary(name, inp):
+        if name in ("Bash", "PowerShell"):
+            return f"[{inp.get('description', '')}]\n  $ " + short(inp.get("command", ""), 30).replace("\n", "\n    ")
+        if name == "Write":
+            return f"{inp.get('file_path')}  ({len(inp.get('content', ''))} chars � content in repo)"
+        if name == "Edit":
+            return (f"{inp.get('file_path')}\n  old: " + short(inp.get("old_string", ""), 10, 300)
+                    + "\n  new: " + short(inp.get("new_string", ""), 10, 300))
+        if name == "Read":
+            return str(inp.get("file_path"))
+        return short(json.dumps(inp, ensure_ascii=False), 10, 600)
+    
+    
+    out = [
+        "actiontrack � Conversation 2 (M1 note loader: implement, PR, merge)",
+        f"Session: {SESSION}",
+        "Exported: 2026-11-26",
+        "Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.",
+        "=" * 100, "",
+    ]
+    for line in open(src, encoding="utf-8"):
+    ... [30 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I have the script. I'll run it on this session's transcript with the conv4 title and write `conversations/conv4.txt`:
+
+  [tool: Bash] [Export this session transcript to conversations/conv4.txt]
+  $ S="C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/f9a42155-df89-4707-9ee1-ad5b8ae48bb5/scratchpad/export_conv.py" && cat > "$S" <<'EOF'
+    import json, re, sys
+    
+    src, dst = sys.argv[1], sys.argv[2]
+    SESSION = "f9a42155-df89-4707-9ee1-ad5b8ae48bb5"
+    TAGS = re.compile(r"<(system-reminder|ide_opened_file|ide_selection)>.*?</\1>", re.S)
+    
+    
+    def clean(s):
+        return TAGS.sub("", s).strip()
+    
+    
+    def short(s, n=40, w=4000):
+        s = s if len(s) <= w else s[:w] + f"\n... [truncated, {len(s) - w} more chars]"
+        lines = s.splitlines()
+        return "\n".join(lines[:n] + ([f"... [{len(lines) - n} more lines]"] if len(lines) > n else []))
+    
+    
+    def tool_summary(name, inp):
+        if name in ("Bash", "PowerShell"):
+            return f"[{inp.get('description', '')}]\n  $ " + short(inp.get("command", ""), 30).replace("\n", "\n    ")
+        if name == "Write":
+            return f"{inp.get('file_path')}  ({len(inp.get('content', ''))} chars \u2014 content in repo)"
+        if name == "Edit":
+            return (f"{inp.get('file_path')}\n  old: " + short(inp.get("old_string", ""), 10, 300)
+                    + "\n  new: " + short(inp.get("new_string", ""), 10, 300))
+        if name == "Read":
+            return str(inp.get("file_path"))
+        return short(json.dumps(inp, ensure_ascii=False), 10, 600)
+    
+    ... [38 more lines]

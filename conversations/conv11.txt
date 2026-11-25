@@ -1,0 +1,1061 @@
+actiontrack — Conversation 11 (M10 Gmail MCP adapter: gaps, implement, connector, PR, merge)
+Session: eb6d3963-2525-46ad-aa49-126469eeb8c7
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on M10 if there are any gaps use ask user question tool with recommendations
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: Bash] [Read memory, repo layout, docs]
+  $ cat "C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/memory/module-gap-workflow.md"; cd /c/Users/Coditas-Admin/Desktop/actionTracker; ls -a; cat CLAUDE.md 2>/dev/null; git log --oneline | head -30; find . -name "*.md" -not -path "*/node_modules/*" | head -50
+
+  [result]:
+    ---
+    name: module-gap-workflow
+    description: How the user wants spec gaps handled when implementing an actiontrack module (M0–M12)
+    metadata:
+      node_type: memory
+      type: feedback
+      originSessionId: 0bdf4b63-da21-46b6-8c2c-4c976b9b21e3
+      modified: 2026-11-25T19:02:17.919Z
+    ---
+    
+    When working on a module, raise every spec gap (root spec vs module spec mismatches, undefined edge cases, literal-template oddities) with AskUserQuestion, putting a "(Recommended)" option first. Then record each answer as a numbered gap (G<n> ✅) in spec/plan.md §5 and fold it into the root and module specs before or with the code.
+    
+    ... [99 more lines]
+
+  [tool: Bash] [Read M10 specs and source tree]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; cat spec/modules/M10-gmail-mcp/*.md; ls spec; find actiontrack tests -name "*.py" | grep -v __pycache__
+
+  [tool: Bash] [Read plan.md]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; cat spec/plan.md
+
+  [result]:
+    # M10 — Gmail MCP Adapter
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M0 |
+    | **Files** | `actiontrack/email/gmail_mcp.py`, `actiontrack/email/outbox.py` |
+    | **REQ IDs** | REQ-MCP-01 … 05, REQ-GEN-01 |
+    
+    ## 1. Purpose
+    Create a Gmail **draft** through the Gmail MCP connector, acting as an MCP client. The adapter can only create drafts.
+    Sending is impossible by construction (REQ-GEN-01).
+    ... [147 more lines]
+
+  [result]:
+    # actiontrack — Implementation Plan (Spec-Driven Development)
+    
+    | | |
+    |---|---|
+    | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
+    | **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7, M8 and M9 done |
+    | **Date** | 2026-11-25 |
+    
+    ---
+    
+    ## 1. How we work
+    
+    ... [117 more lines]
+
+  [tool: Bash] [Read root spec MCP parts, config, errors, deps]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; grep -n -i -E "mcp|outbox|draft|GEN-01|Q6" spec/requirements.md | head -80; cat actiontrack/config.py actiontrack/errors.py; cat pyproject.toml; uv pip list 2>/dev/null | grep -i -E "mcp|anyio"
+
+  [result]:
+    5:| **Status** | Draft v1 |
+    14:`actiontrack` is a local CLI that reads meeting notes, tracks their action items in one store, and drafts follow-up
+    22:- Draft one follow-up email per owner as a Gmail draft, through the Gmail MCP connector.
+    26:- Sending email, scheduling sends, or any outbound message other than creating a draft.
+    38:| D4 | Gmail integration | The CLI acts as an **MCP client** (Python `mcp` SDK) and calls the connector's `create_draft` tool |
+    50:| D16 | Quality bar | pytest unit + integration tests, a mocked MCP server, ruff, mypy |
+    217:CREATE TABLE drafts (
+    221:  gmail_draft_id TEXT,
+    286:1. Resolves the owner (same rules as `--owner`). An ambiguous or unknown owner → error, no draft.
+    287:2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3). If there are none → message, no draft.
+    299:5. `--dry-run` prints the rendered email and does not call MCP.
+    300:6. Otherwise it calls the Gmail MCP `create_draft` tool and prints the draft ID/link, then records a row in `drafts`.
+    ... [374 more lines]
+
+  [tool: Bash] [Read root spec §10 and mcp package layout]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; sed -n 280,330p spec/requirements.md; sed -n 470,490p spec/requirements.md; ls .venv/Lib/site-packages/mcp .venv/Lib/site-packages/mcp/client .venv/Lib/site-packages/mcp/shared .venv/Lib/site-packages/mcp/server
+
+  [result]:
+    ### 9.3 `actiontrack done <id>`
+    - Resolves the ID prefix (§8.1) and sets `status='done'`, `done_source='cli'`, `done_at=now`.
+    - Already done → prints a notice and exits 0. Unknown or ambiguous ID → exits 2.
+    
+    ### 9.4 `actiontrack followup <owner>`
+    1. Resolves the owner (same rules as `--owner`). An ambiguous or unknown owner → error, no draft.
+    2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3). If there are none → message, no draft.
+    3. Resolves the recipient (D13):
+       - the email from any attendees entry for this person, **or**
+       - `firstname.lastname@coditas.com`, derived from the full name (lowercased, accents removed, spaces/hyphens in multi-part
+         names joined with `.`, e.g. `Anna Maria Lopez` → `anna.maria.lopez@coditas.com`). *(Assumption about multi-part names; confirm.)*
+       - Only a first name known → error `cannot derive email: no last name for "Priya"`.
+    ... [142 more lines]
+
+  [tool: Bash] [Inspect mcp 2.x API surface]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/.venv/Lib/site-packages/mcp; cat __init__.py | head -80; echo ----FASTMCP; head -40 server/fastmcp.py; echo ---MEM; cat shared/memory.py | head -80; echo ---CMEM; head -80 client/_memory.py
+
+  [result]:
+    from mcp_types import (
+        CallToolRequest,
+        ClientCapabilities,
+        ClientNotification,
+        ClientRequest,
+        ClientResult,
+        CompleteRequest,
+        CreateMessageRequest,
+        CreateMessageResult,
+        CreateMessageResultWithTools,
+        ErrorData,
+        GetPromptRequest,
+    ... [200 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Reading the M10 spec against the installed `mcp` 2.3.0 SDK: several names changed since v1, so the spec doesn't match the SDK in places.
+
+  [tool: Bash] [Inspect client APIs]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/.venv/Lib/site-packages/mcp; grep -n "^async def\|^def\|^class\|^@asynccontextmanager" client/streamable_http.py client/stdio.py client/session.py client/client.py client/_transport.py; grep -n "def __init__" -A25 client/session.py | head -50; grep -n "async def call_tool\|async def list_tools\|async def initialize" -A12 client/session.py | head -60
+
+  [result]:
+    client/streamable_http.py:64:class StreamableHTTPError(Exception):
+    client/streamable_http.py:68:class ResumptionError(StreamableHTTPError):
+    client/streamable_http.py:72:def _unfollowed_redirect(response: httpx2.Response) -> str | None:
+    client/streamable_http.py:88:class RequestContext:
+    client/streamable_http.py:99:class _InFlightPost:
+    client/streamable_http.py:111:class StreamableHTTPTransport:
+    client/streamable_http.py:712:@asynccontextmanager
+    client/streamable_http.py:713:async def streamable_http_client(
+    client/stdio.py:76:def get_default_environment() -> dict[str, str]:
+    client/stdio.py:94:class StdioServerParameters(BaseModel):
+    client/stdio.py:114:@asynccontextmanager
+    client/stdio.py:115:async def stdio_client(
+    ... [133 more lines]
+
+  [tool: Bash] [Inspect http/stdio clients and types]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/.venv/Lib/site-packages/mcp; sed -n 700,760p client/streamable_http.py; sed -n 94,135p client/stdio.py; grep -n "async def __aenter__\|async def __aexit__\|async def list_tools" -A8 client/session.py | head -40; grep -n "class CallToolResult" -A25 ../mcp_types/*.py | head -40; grep -n "class Tool(" -A30 ../mcp_types/*.py | grep -n -i "schema\|name"
+
+  [result]:
+            try:
+                headers = self._prepare_headers()
+                response = await request_within_origin(client, "DELETE", self.url, headers=headers)
+    
+                if response.status_code == 405:
+                    logger.debug("Server does not allow session termination")
+                elif response.status_code not in (200, 204):
+                    logger.warning(f"Session termination failed: {response.status_code}")  # pragma: no cover
+            except Exception as exc:  # pragma: no cover
+                logger.warning(f"Session termination failed: {exc}")
+    
+    
+    ... [153 more lines]
+
+  [tool: Bash] [Check logging, clock, test conventions]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; cat actiontrack/console.py | head -80; cat actiontrack/clock.py; cat actiontrack/email/__init__.py; ls actiontrack/email actiontrack/templates 2>/dev/null; cat tests/integration/conftest.py; grep -rn "logging\|getLogger" actiontrack | head
+
+  [result]:
+    """stdout/stderr consoles and logging (REQ-CLI-03, REQ-CLI-04, REQ-CLI-09).
+    
+    stdout carries data only; messages, warnings, progress and logs go to stderr.
+    """
+    
+    from __future__ import annotations
+    
+    import logging
+    import sys
+    from collections.abc import Mapping
+    from dataclasses import dataclass
+    from typing import Literal
+    ... [297 more lines]
+
+  [tool: Bash] [Check logging config and MCPServer tool API]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; sed -n 78,120p actiontrack/console.py; ls .venv/Lib/site-packages/mcp/server/mcpserver; grep -n "def tool\b\|def tool(" -A30 .venv/Lib/site-packages/mcp/server/mcpserver/server.py | head -50
+
+  [result]:
+    def _log_level(*, quiet: bool, verbosity: int) -> int:
+        if quiet:
+            return logging.ERROR
+        if verbosity >= 2:
+            return logging.DEBUG
+        if verbosity == 1:
+            return logging.INFO
+        return logging.WARNING
+    
+    
+    def _configure_logging(output: Output) -> None:
+        logger = logging.getLogger(LOGGER_NAME)
+    ... [48 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I've read the spec and checked it against the installed `mcp` 2.3.0 SDK. I found these gaps:
+
+  [tool: AskUserQuestion]
+  Q [MCP SDK]: G16 — The M10 spec and tests use mcp v1 names (FastMCP, streamablehttp_client, inputSchema/structuredContent/isError), but the installed SDK is mcp 2.3.0 (MCPServer, streamable_http_client, snake_case input_schema/structured_content/is_error; mcp.server.fastmcp now raises on import). Also list_tools() is paginated (next_cursor). How should M10 handle this?
+    - Target mcp 2.x (Recommended): Rewrite the spec/tests to the 2.x names, pin mcp>=2.3,<3 in pyproject, and follow list_tools pagination until the draft tool is found or pages run out.
+    - Pin mcp<2: Downgrade to mcp 1.x so the spec names work as written; no pagination handling.
+    - 2.x, first page only: Use 2.x names but only check the first list_tools page.
+  Q [Outbox slug]: G17 — write_outbox names files <owner-key-slug>-<YYYYMMDDTHHMMSS>.eml, but the slug rule is undefined. Owner keys look like 'priya.shah@coditas.com' or 'name:priya' (G1). What slug rule?
+    - Safe-char slug (Recommended): Lowercase; every run of chars outside [a-z0-9._-] becomes '-', trimmed of '-'/'.'; empty → 'unknown'. e.g. priya.shah-coditas.com, name-priya. Timestamp = `now` in its own (local) timezone.
+    - Local part only: Use the part before '@' (or after 'name:'), e.g. priya.shah, priya. Shorter but can collide across domains.
+    - Hash: First 8 hex chars of sha1(owner_key). Safe but not human-readable.
+  Q [Required args]: G18 — Schema validation checks the mapped arg names exist in input_schema.properties. What if the tool's schema marks other args as `required` that we don't map (e.g. a required `cc` or `from`)?
+    - Fail before calling (Recommended): Also raise ExternalServiceError when input_schema.required lists names we don't send, naming them; no call is made. Clearer than a server-side validation error.
+    - Only check mapped names: As written: ignore `required`; if the server rejects the call, surface its error.
+  Q [Draft link]: G19 — The spec builds the link as https://mail.google.com/mail/#drafts?compose=<id>. A Gmail API draft ID (r-…) is usually not the compose ID, so that link may not open the draft. What should DraftResult.link be?
+    - Server link, else built (Recommended): Use a `link`/`url` returned by the server (structured or text JSON) when present; otherwise fall back to the spec's built link when an ID was found.
+    - Keep spec link: Always build #drafts?compose=<id> from the ID; ignore any server link.
+    - Drafts folder: Link to https://mail.google.com/mail/#drafts whenever an ID was found.
+
+  [result]:
+    Your questions have been answered: "G16 — The M10 spec and tests use mcp v1 names (FastMCP, streamablehttp_client, inputSchema/structuredContent/isError), but the installed SDK is mcp 2.3.0 (MCPServer, streamable_http_client, snake_case input_schema/structured_content/is_error; mcp.server.fastmcp now raises on import). Also list_tools() is paginated (next_cursor). How should M10 handle this?"="Target mcp 2.x (Recommended)", "G17 — write_outbox names files <owner-key-slug>-<YYYYMMDDTHHMMSS>.eml, but the slug rule is undefined. Owner keys look like 'priya.shah@coditas.com' or 'name:priya' (G1). What slug rule?"="Safe-char slug (Recommended)", "G18 — Schema validation checks the mapped arg names exist in input_schema.properties. What if the tool's schema marks other args as `required` that we don't map (e.g. a required `cc` or `from`)?"="Fail before calling (Recommended)", "G19 — The spec builds the link as https://mail.google.com/mail/#drafts?compose=<id>. A Gmail API draft ID (r-…) is usually not the compose ID, so that link may not open the draft. What should DraftResult.link be?"="Server link, else built (Recommended)". You can now continue with these answers in mind.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All four recommended options picked. Creating the branch and updating the specs first.
+
+  [tool: Bash] [Branch and view prior gap-commit style]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; git checkout -b feat/m10-gmail-mcp; git show 06106ab --stat; git show 06106ab -- spec/plan.md | head -40
+
+  [result]:
+    Switched to a new branch 'feat/m10-gmail-mcp'
+    commit 06106abb7e738930934919202e5ce0347de2d6b4
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Thu Nov 26 00:27:01 2026 +0530
+    
+        M9: confirm gaps G7, G12, G13 and G14 in the specs
+        
+        - requirements.md §9.4: the subject's N counts open items that are not overdue (G7); the
+          template is plain-text `templates/followup.txt.j2` (G12, also §11).
+        - plan.md: G7 resolved; new gaps G12 (template name), G13 (invalid overdue item → ValueError)
+          and G14 (rendered lines right-stripped) recorded and resolved.
+        - M9 spec/tests/tasks: overdue validation and whitespace normalisation, TC-M9-13 and TC-M9-14.
+    ... [49 more lines]
+
+  [tool: Bash] [Apply gap resolutions to specs and pin mcp]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; python - <<'EOF'
+  $ from pathlib import Path
+  $ p = Path("spec/modules/M10-gmail-mcp/spec.md"); s = p.read_text(encoding="utf-8")
+  $ def rep(old, new):
+  $     global s
+  $     assert old in s, old
+  $     s = s.replace(old, new)
+  $ rep("""`SessionFactory` is an async context manager that yields a connected `mcp.ClientSession`. It is injectable so tests can use an
+  $ in-memory fake server.""",
+  $ """`SessionFactory` is a zero-argument callable returning an async context manager that yields a connected (not yet initialized)
+  $ `mcp.ClientSession`. It is injectable so tests can use an in-memory fake server.
+  $ 
+  $ **SDK** (G16): the adapter targets the `mcp` 2.x SDK (`mcp>=2.3,<3`). Its names are used throughout: `streamable_http_client`,
+  $ `mcp.server.mcpserver.MCPServer` (formerly `FastMCP`), and snake_case result fields `input_schema`, `structured_content`,
+  $ `is_error`, `next_cursor`.""")
+  $ rep("- `transport=\"http\"` → `streamablehttp_client(url)`.", "- `transport=\"http\"` → `streamable_http_client(url)`.")
+  $ rep("""2. `list_tools()` → the draft tool must be present (REQ-MCP-02). Missing → `ExternalServiceError('MCP server does not expose
+  $    "create_draft"', hint="check gmail_mcp settings")`.
+  $ 3. Validate that the tool's `inputSchema.properties` contains the mapped arg names (`cfg.arg_names`). Missing → `ExternalServiceError`
+  $    listing the expected vs. actual names (gap G8).""",
+  $ """2. `list_tools()`, following `next_cursor` until the draft tool is found or the pages run out (G16) → the draft tool must be
+  $    present (REQ-MCP-02). Missing → `ExternalServiceError('MCP server does not expose "create_draft"', hint="check gmail_mcp settings")`.
+  $ 3. Validate the tool's `input_schema` (gap G8): `properties` must contain the mapped arg names (`cfg.arg_names`), and every name
+  $    in `required` must be one of them (G18). Otherwise → `ExternalServiceError` listing the expected vs. actual names; no call is made.""")
+  $ rep("6. Result `isError` →", "6. Result `is_error` →")
+  $ rep("""7. Parse the draft ID: `structuredContent.id` / `draftId` / `draft.id`, else a JSON object in the first text content with the same keys,
+  $    else None. Link = `https://mail.google.com/mail/#drafts?compose=<id>` when an ID was found.""",
+  $ """7. Parse the draft ID: `structured_content.id` / `draftId` / `draft.id`, else a JSON object in the first text content with the same
+  $    keys, else None (a non-string ID is converted with `str`). Link (G19): a `link` / `url` string from the same object when present,
+  $    else `https://mail.google.com/mail/#drafts?compose=<id>` when an ID was found, else None.""")
+  $ rep("""8. Timeout, connection error, process launch failure → `ExternalServiceError` (exit 3) (REQ-MCP-04).""",
+  $ """8. Timeout, connection error, process launch failure, MCP protocol error → `ExternalServiceError` (exit 3) (REQ-MCP-04).
+  $    Errors raised inside the SDK's task groups arrive as `ExceptionGroup`s and are unwrapped first. `ForbiddenToolError` is
+  $    never converted.""")
+  $ rep("""`X-Actiontrack-Status: draft-not-created`) to `outbox_dir/<owner-key-slug>-<YYYYMMDDTHHMMSS>.eml`.""",
+  $ """`X-Actiontrack-Status: draft-not-created`) to `outbox_dir/<owner-key-slug>-<YYYYMMDDTHHMMSS>.eml`. Slug (G17): the owner key
+  $ lowercased, each run of characters outside `[a-z0-9._-]` replaced by `-`, leading/trailing `-` and `.` trimmed, `unknown` if
+  $ empty (`priya.shah@coditas.com` → `priya.shah-coditas.com`, `name:priya` → `name-priya`). The timestamp and `Date` use `now` in
+  $ its own timezone.""")
+  $ rep("Q6/G8: the real Gmail MCP server", "Q6: the real Gmail MCP server")
+  $ p.write_text(s, encoding="utf-8")
+  $ 
+  $ p = Path("spec/modules/M10-gmail-mcp/tests.md"); s = p.read_text(encoding="utf-8")
+  $ rep("**Fake server**: an in-process `mcp.server.fastmcp.FastMCP`", "**Fake server**: an in-process `mcp.server.mcpserver.MCPServer`")
+  $ rep("A variant fake has no `create_draft`, and another returns `isError`, sleeps, or uses different argument names.",
+  $     "A variant fake has no `create_draft`, and another returns `is_error`, sleeps, uses different argument names, requires an\nextra argument, or pages its tool list.")
+  $ rep("| TC-M10-09 | Fake returning `isError=True`", "| TC-M10-09 | Fake returning `is_error=True`")
+  $ rep("| TC-M10-13 | Result forms: structuredContent `{id}`, text JSON `{\"draftId\":…}`, plain text | parse | id, id, None | REQ-MCP-01 |",
+  $ """| TC-M10-13 | Result forms: structured_content `{id}`, text JSON `{"draftId":…}`, `{"draft":{"id":…}}`, plain text; with and without a `link`/`url` | parse | id, id, id, None; link = server link when given, else the built link, None without an ID | REQ-MCP-01 (G19) |""")
+  $ rep("| TC-M10-15 | — | `write_outbox` twice with the same timestamp | Two files (`…eml`, `…-2.eml`). Parsed back with `email.parser`: To/Subject/body match, the status header present | REQ-MCP-04 |",
+  $ """| TC-M10-15 | — | `write_outbox` twice with the same timestamp | Two files (`…eml`, `…-2.eml`). Parsed back with `email.parser`: To/Subject/body match, the status header present | REQ-MCP-04 |
+  $ | TC-M10-16 | Owner keys `priya.shah@coditas.com`, `name:Priya`, `@@@` | `write_outbox` | Files `priya.shah-coditas.com-…`, `name-priya-…`, `unknown-…`; the directory is created | REQ-MCP-04 (G17) |
+  $ | TC-M10-17 | Fake whose `create_draft` also requires `cc` | `create_draft` | `ExternalServiceError` naming `cc`. The fake records no call | REQ-MCP-02 (G18) |
+  $ | TC-M10-18 | Fake that pages `list_tools` (`create_draft` on page 2) | `create_draft` | Succeeds | REQ-MCP-02 (G16) |""")
+  $ p.write_text(s, encoding="utf-8")
+  $ 
+  $ p = Path("spec/modules/M10-gmail-mcp/tasks.md"); s = p.read_text(encoding="utf-8")
+  $ rep("(FastMCP with recording tools + variants)", "(`MCPServer` with recording tools + variants)")
+  $ rep("TC-M10-01 … TC-M10-15.", "TC-M10-01 … TC-M10-18.")
+  $ rep("error mapping. → TC-M10-06, 07, 09 … 11", "error mapping, `list_tools` pagination, `required` check. → TC-M10-06, 07, 09 … 11, 17, 18")
+  $ rep("**T10.7 `write_outbox`**. → TC-M10-15", "**T10.7 `write_outbox`**. → TC-M10-15, 16")
+  $ p.write_text(s, encoding="utf-8")
+  $ 
+  $ p = Path("spec/requirements.md"); s = p.read_text(encoding="utf-8")
+  $ rep("""- Before calling the tool, the client checks that `draft_tool` is in `list_tools()` and fails with a clear message if it is not.""",
+  $ """- Targets the `mcp` 2.x SDK (`mcp>=2.3,<3`) (G16).
+  $ - Before calling the tool, the client checks that `draft_tool` is in `list_tools()` (following pagination) and fails with a clear
+  $   message if it is not. It also checks the tool's input schema: the mapped argument names must exist, and the tool must not
+  $   require any argument the client does not send (G8, G18).""")
+  $ rep("""- Timeout of 30 s. On a connection failure the rendered email is saved to `<user_data_dir>/outbox/<owner>-<ts>.eml` so the work
+  $   is not lost, and the command exits 3.""",
+  $ """- Timeout of 30 s. On a connection failure the rendered email is saved to `<user_data_dir>/outbox/<owner>-<ts>.eml` so the work
+  $   is not lost, and the command exits 3. `<owner>` is a filename-safe slug of the owner key (G17).
+  $ - The draft link is the one the server returns (`link`/`url`) when present, otherwise
+  $   `https://mail.google.com/mail/#drafts?compose=<id>` (G19).""")
+  $ p.write_text(s, encoding="utf-8")
+  $ 
+  $ p = Path("spec/plan.md"); s = p.read_text(encoding="utf-8")
+  $ rep("and G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11).",
+  $     "G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11),\nand G8, G16, G17, G18 and G19 with M10 (root spec §10.1).")
+  $ rep("| G8 | The Gmail MCP server's", "| G8 ✅ | The Gmail MCP server's")
+  $ rep("| G15 ✅ | The M9 template `(due {{ due or \"no due date\" }})` reads \"(due no due date)\" for an undated item | Undated open items read `(no due date)`; dated ones `(due 2026-11-28)` | M9 |",
+  $ """| G15 ✅ | The M9 template `(due {{ due or "no due date" }})` reads "(due no due date)" for an undated item | Undated open items read `(no due date)`; dated ones `(due 2026-11-28)` | M9 |
+  $ | G16 ✅ | The M10 spec used mcp v1 names (`FastMCP`, `streamablehttp_client`, camelCase result fields), but the installed SDK is mcp 2.x; `list_tools` is paginated | Target mcp 2.x (`mcp>=2.3,<3`): `MCPServer`, `streamable_http_client`, snake_case fields. Follow `next_cursor` until the draft tool is found | M10 |
+  $ | G17 ✅ | The outbox file name's `<owner-key-slug>` rule was undefined | Lowercase; runs of chars outside `[a-z0-9._-]` → `-`; trim `-`/`.`; empty → `unknown`. Timestamp = `now` in its own timezone | M10, M11 |
+  $ | G18 ✅ | The draft tool's schema may `require` arguments the client does not send | Fail before calling with `ExternalServiceError` naming them | M10 |
+  $ | G19 ✅ | A Gmail API draft ID is usually not the compose ID, so the built `#drafts?compose=<id>` link may not open the draft | Use a `link`/`url` returned by the server when present; otherwise the built link | M10 |""")
+  $ p.write_text(s, encoding="utf-8")
+  $ EOF
+  $ sed -i 's/"mcp>=1.0",/"mcp>=2.3,<3",/' pyproject.toml; uv lock -q 2>&1 | tail -3; git diff --stat
+
+  [result]:
+    Exit code 2
+    /usr/bin/bash: -c: line 81: unexpected EOF while looking for matching `''
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Heredoc quoting tripped up; I'll write the edit script to the scratchpad instead.
+
+  [tool: Write]
+  C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\spec_edits.py
+
+  [result]:
+    File created successfully at: C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\spec_edits.py (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Run spec edits, pin mcp, relock]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; python "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7/scratchpad/spec_edits.py" . && sed -i 's/"mcp>=1.0",/"mcp>=2.3,<3",/' pyproject.toml && uv lock 2>&1 | tail -2; git diff --stat
+
+  [result]:
+    ok
+    Resolved 64 packages in 9.13s
+    warning: in the working copy of 'pyproject.toml', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'uv.lock', LF will be replaced by CRLF the next time Git touches it
+     pyproject.toml                      |  2 +-
+     spec/modules/M10-gmail-mcp/spec.md  | 36 +++++++++++++++++++++++-------------
+     spec/modules/M10-gmail-mcp/tasks.md |  8 ++++----
+     spec/modules/M10-gmail-mcp/tests.md | 12 ++++++++----
+     spec/plan.md                        |  9 +++++++--
+     spec/requirements.md                |  9 +++++++--
+     uv.lock                             |  2 +-
+     7 files changed, 51 insertions(+), 27 deletions(-)
+
+  [tool: Bash] [Commit spec gap confirmations]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; git add -A && git commit -q -F - <<'MSG'
+  $ M10: confirm gaps G8, G16, G17, G18 and G19 in the specs
+  $ 
+  $ - requirements.md §10.1: target the mcp 2.x SDK and follow list_tools pagination (G16); the
+  $   draft tool must not require arguments the client does not send (G8, G18); the outbox file
+  $   name uses a filename-safe owner slug (G17); prefer the server's draft link (G19).
+  $ - plan.md: G8 resolved; new gaps G16-G19 recorded and resolved.
+  $ - M10 spec/tests/tasks: mcp 2.x names, TC-M10-16 (slug), TC-M10-17 (required args),
+  $   TC-M10-18 (paged tools), TC-M10-13 extended for links.
+  $ - pyproject: pin mcp>=2.3,<3.
+  $ 
+  $ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  $ MSG
+  $ git log --oneline -1
+
+  [result]:
+    warning: in the working copy of 'pyproject.toml', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'uv.lock', LF will be replaced by CRLF the next time Git touches it
+    a2f781d M10: confirm gaps G8, G16, G17, G18 and G19 in the specs
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Specs committed. Now checking how to build the fake servers with the 2.x `MCPServer` / low-level `Server` API.
+
+  [tool: Bash] [Inspect lowlevel Server API]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/.venv/Lib/site-packages/mcp; ls server/lowlevel; grep -n "def \(list_tools\|call_tool\|__init__\)\|on_list_tools\|on_call_tool" server/lowlevel/server.py | head -20; grep -rn "on_list_tools\|on_call_tool" --include=*.py ../mcp | grep -v "^.*#" | head -10
+
+  [result]:
+    __init__.py
+    helper_types.py
+    server.py
+    18:       on_list_tools=my_list_tools,
+    19:       on_call_tool=my_call_tool,
+    109:    def __init__(self, prompts_changed: bool = False, resources_changed: bool = False, tools_changed: bool = False):
+    131:    def __init__(
+    148:        on_list_tools: Callable[
+    153:        on_call_tool: Callable[
+    215:    def __init__(
+    232:        on_list_tools: Callable[
+    237:        on_call_tool: Callable[
+    ... [15 more lines]
+
+  [tool: Bash] [Read lowlevel Server docs and memory transport tail]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/.venv/Lib/site-packages/mcp; sed -n 1,60p server/lowlevel/server.py; sed -n 300,345p server/lowlevel/server.py; sed -n 60,130p client/_memory.py
+
+  [result]:
+    """MCP Server Module
+    
+    This module provides a framework for creating an MCP (Model Context Protocol) server.
+    It allows you to easily define and handle various types of requests and notifications
+    using constructor-based handler registration.
+    
+    Usage:
+    1. Define handler functions:
+       async def my_list_tools(ctx, params):
+           return types.ListToolsResult(tools=[...])
+    
+       async def my_call_tool(ctx, params):
+    ... [144 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll build the fakes on the low-level `Server` (exact schemas, paging, `is_error`). Prototyping the round trip first.
+
+  [tool: Write]
+  C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\proto.py
+
+  [result]:
+    File created successfully at: C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\proto.py (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Run MCP prototype]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; uv run python "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7/scratchpad/proto.py" 2>&1 | tail -20
+
+  [result]:
+       Building actiontrack @ file:///C:/Users/Coditas-Admin/Desktop/actionTracker
+          Built actiontrack @ file:///C:/Users/Coditas-Admin/Desktop/actionTracker
+    Uninstalled 1 package in 12ms
+    Installed 1 package in 32ms
+    [Tool(name='a', title=None, description=None, input_schema={'properties': {'to': {'type': 'string'}}, 'required': ['to'], 'type': 'object'}, execution=None, output_schema=None, icons=None, annotations=None, meta=None)] p2
+    ['create_draft']
+    meta=None content=[TextContent(type='text', text='{"id": "r-1"}', annotations=None, meta=None)] structured_content={'id': 'r-1'} is_error=False result_type='complete'
+    [('create_draft', {'to': 'x'})]
+    stdio: <class 'FileNotFoundError'> [WinError 2] The system cannot find the file specified
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Round trip works. Glancing at `render.py` for house style, then writing the adapter.
+
+  [tool: Bash] [Read render.py and its test for style]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; head -60 actiontrack/email/render.py; head -40 tests/unit/email/test_render.py
+
+  [result]:
+    """Follow-up email rendering: one person's overdue and open items → subject and body (M9 spec).
+    
+    `render_followup` is deterministic: the same inputs always give the same bytes (D5). The only I/O
+    is loading the packaged template.
+    """
+    
+    from __future__ import annotations
+    
+    import functools
+    from collections.abc import Sequence
+    from dataclasses import dataclass
+    from datetime import date
+    ... [86 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Writing the adapter (`mcp` imported lazily, like `jinja2` in `render.py`, to keep CLI startup fast).
+
+  [tool: Write]
+  C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\gmail_mcp.py
+
+  [tool: Write]
+  C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\outbox.py
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\gmail_mcp.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\outbox.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the fake server fixtures and the TC-M10 tests.
+
+  [tool: Write]
+  C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\mcp_fakes.py
+
+  [tool: Write]
+  C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_gmail_mcp.py
+
+  [tool: Bash] [Run M10 tests]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; uv run pytest tests/integration/test_gmail_mcp.py -q 2>&1 | tail -40
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\mcp_fakes.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_gmail_mcp.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    .......................F......                                           [100%]
+    ================================== FAILURES ===================================
+    ___________ test_TC_M10_15_outbox_never_overwrites_and_round_trips ____________
+    
+    tmp_path = WindowsPath('C:/Users/Coditas-Admin/AppData/Local/Temp/pytest-of-mohit.gupta_coditas/pytest-34/test_TC_M10_15_outbox_never_ov0')
+    
+        def test_TC_M10_15_outbox_never_overwrites_and_round_trips(tmp_path: Path) -> None:
+            now = datetime(2026, 11, 26, 9, 30, 5).astimezone()
+            kwargs: dict[str, Any] = {"owner_key": TO, "to": TO, "subject": SUBJECT, "now": now}
+            first = write_outbox(outbox_dir=tmp_path, body=BODY, **kwargs)
+            second = write_outbox(outbox_dir=tmp_path, body="Second body \u2713\\n", **kwargs)
+            assert first.name == "priya.shah-coditas.com-20261126T093005.eml"
+    ... [23 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The one failure is the CRLF line endings (correct for RFC 5322) coming back in the parsed body. I'll normalize line endings in the test's comparison.
+
+  [tool: Edit]
+  C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_gmail_mcp.py
+
+  [tool: Bash] [Full tests, lint, types, coverage]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; uv run pytest -q 2>&1 | tail -3; uv run ruff check . ; uv run ruff format --check .; uv run mypy --strict actiontrack 2>&1 | tail -5; uv run pytest tests/integration/test_gmail_mcp.py -q --cov=actiontrack.email --cov-report=term-missing 2>&1 | grep -E "gmail|outbox|TOTAL"
+
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_gmail_mcp.py has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [result]:
+    ........................................................................ [ 91%]
+    ...............................................                          [100%]
+    550 passed, 1 skipped, 1 deselected in 29.43s
+    E501 Line too long (105 > 100)
+     --> actiontrack\email\gmail_mcp.py:1:101
+      |
+    1 | """Gmail draft adapter: an MCP client that can only create drafts (M10 spec, REQ-MCP-01..05, REQ-GEN-01).
+      |                                                                                                     ^^^^^
+    2 |
+    3 | Sending is impossible by construction: the one public method is `create_draft`, and `_call`
+      |
+    
+    ... [138 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All tests pass and mypy is clean; fixing the lint issues (line lengths, nested `with`).
+
+  [tool: Bash] [Fix lint, reformat, rerun gate]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; sed -i '1s/.*/"""Gmail draft adapter: an MCP client that can only create drafts (M10, REQ-MCP-01..05, REQ-GEN-01)./' actiontrack/email/gmail_mcp.py; sed -i '1s/.*/"""The outbox: a rendered email saved as `.eml` when no Gmail draft was created (REQ-MCP-04)."""/' actiontrack/email/outbox.py; python - <<'EOF'
+  $ from pathlib import Path
+  $ p = Path("tests/integration/mcp_fakes.py"); s = p.read_text(encoding="utf-8")
+  $ s = s.replace("""            async with InMemoryTransport(self.server()) as (read, write):
+  $                 async with ClientSession(read, write) as session:
+  $                     yield session""", """            transport = InMemoryTransport(self.server())
+  $             async with transport as (read, write), ClientSession(read, write) as session:
+  $                 yield session""")
+  $ p.write_bytes(s.encode("utf-8").replace(b"\r\n", b"\n"))
+  $ EOF
+  $ uv run ruff format -q actiontrack tests; uv run ruff check . && uv run mypy --strict actiontrack | tail -1 && uv run pytest -q 2>&1 | tail -1; head -1 actiontrack/email/gmail_mcp.py; git status --short
+
+  [result]:
+    All checks passed!
+    Success: no issues found in 24 source files
+    550 passed, 1 skipped, 1 deselected in 24.03s
+    """Gmail draft adapter: an MCP client that can only create drafts (M10, REQ-MCP-01..05, REQ-GEN-01).
+    ?? actiontrack/email/gmail_mcp.py
+    ?? actiontrack/email/outbox.py
+    ?? tests/integration/mcp_fakes.py
+    ?? tests/integration/test_gmail_mcp.py
+    [This command modified 3 files you've previously read: actiontrack\email\gmail_mcp.py, tests\integration\mcp_fakes.py, actiontrack\email\outbox.py. Call Read before editing.]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Gate is clean. Aligning the spec wording with the fake (low-level `Server`, not `MCPServer`), ticking tasks and checking package coverage.
+
+  [tool: Bash] [Update tests/tasks wording, status board, coverage]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; sed -i 's/an in-process `mcp.server.mcpserver.MCPServer` exposing/an in-process low-level `mcp.server.Server` (exact input schemas, paging and `is_error` results) exposing/' spec/modules/M10-gmail-mcp/tests.md; sed -i 's/(`MCPServer` with recording tools + variants)/(low-level `mcp.server.Server` with recording tools + variants)/; s/- \[ \] \*\*T10/- [x] **T10/' spec/modules/M10-gmail-mcp/tasks.md; sed -i 's/^| M10 | Draft | ☐ | ☐ | ☐ | — |/| M10 | Draft | ☑ | ☑ | ☑ | — |/; s/M0, M1, M2, M3, M4, M5, M6, M7, M8 and M9 done/M0, M1, M2, M3, M4, M5, M6, M7, M8, M9 and M10 done/' spec/plan.md; grep -n "M10 |\|Status\*\*" spec/plan.md | head; cat spec/modules/M10-gmail-mcp/tasks.md | head -8; uv run pytest -q --cov=actiontrack.email --cov-report=term 2>&1 | grep -E "email|TOTAL"
+
+  [result]:
+    6:| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7, M8, M9 and M10 done |
+    51:| [M11](modules/M11-followup/spec.md) | `followup` command | `services/followup.py`, `cli.py` | M2, M6, M8, M9, M10 | FU-01..03, FU-05, FU-06 |
+    71:| 2 | M1, M2, M3, M6, M9, M10 | These don't depend on each other and can be done in any order or in parallel |
+    92:| M10 | Draft | ☑ | ☑ | ☑ | — |
+    113:| G8 ✅ | The Gmail MCP server's `create_draft` argument names/shapes are unknown (Q6) | Configurable argument mapping (`arg_names`, `to_as_list`), validated against the tool's `inputSchema` | M10 |
+    121:| G16 ✅ | The M10 spec used mcp v1 names (`FastMCP`, `streamablehttp_client`, camelCase result fields), but the installed SDK is mcp 2.x; `list_tools` is paginated | Target mcp 2.x (`mcp>=2.3,<3`): `MCPServer`, `streamable_http_client`, snake_case fields. Follow `next_cursor` until the draft tool is found | M10 |
+    123:| G18 ✅ | The draft tool's schema may `require` arguments the client does not send | Fail before calling with `ExternalServiceError` naming them | M10 |
+    124:| G19 ✅ | A Gmail API draft ID is usually not the compose ID, so the built `#drafts?compose=<id>` link may not open the draft | Use a `link`/`url` returned by the server when present; otherwise the built link | M10 |
+    # M10 — Tasks
+    
+    Branch: `feat/m10-gmail-mcp`
+    
+    ... [9 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Coverage 97% for the email package. Running the traceability check, then committing and opening the PR (same flow as M9).
+
+  [tool: Bash] [Commit implementation, push, open PR]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; grep -o 'REQ-MCP-[0-9]*\|REQ-GEN-01' spec/modules/M10-gmail-mcp/tests.md | sort -u | tr '\n' ' '; echo; git add -A && git commit -q -F - <<'MSG'
+  $ M10: Gmail MCP adapter (allowlisted create_draft, schema checks, outbox)
+  $ 
+  $ - email/gmail_mcp.py: GmailMcpDraftSink over stdio or streamable HTTP (mcp 2.x, imported
+  $   lazily). create_draft initializes, finds the tool across list_tools pages, validates the
+  $   input schema (mapped names present, nothing unsent required), maps the arguments and calls
+  $   through _call, which checks ALLOWED_TOOLS first. Draft ID/link parsed from structured or
+  $   text-JSON results, preferring a server link. Timeouts, launch/connection and protocol
+  $   errors map to ExternalServiceError (exit 3); DEBUG logs show argument keys only.
+  $ - email/outbox.py: write_outbox saves a CRLF .eml with the draft-not-created status header
+  $   under a filename-safe owner slug, never overwriting (-2, -3, ...).
+  $ - tests: in-process fake Gmail servers (send tools recorded and asserted never called) and
+  $   TC-M10-01 ... TC-M10-18.
+  $ - spec: tasks ticked, status board updated.
+  $ 
+  $ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  $ MSG
+  $ git push -q -u origin feat/m10-gmail-mcp 2>&1 | tail -2; gh pr create --base main --title "M10: Gmail MCP adapter" --body "$(cat <<'MSG'
+  $ Implements [M10 — Gmail MCP adapter](spec/modules/M10-gmail-mcp/spec.md).
+  $ 
+  $ ## Summary
+  $ - `GmailMcpDraftSink` (`actiontrack/email/gmail_mcp.py`): the MCP client can only create drafts. `create_draft` is its only public method, and `_call` checks the hard-coded `ALLOWED_TOOLS = {"create_draft"}` before every tool call. A config that points `draft_tool` at another tool fails at construction.
+  $ - stdio / streamable-HTTP transports from `[gmail_mcp]`; `list_tools` pagination; input-schema validation (G8, G18); `is_error`, timeout, launch and protocol failures → `ExternalServiceError` (exit 3).
+  $ - Draft ID and link parsing; the link the server returns wins over the built `#drafts?compose=<id>` link (G19).
+  $ - `write_outbox` (`actiontrack/email/outbox.py`): RFC 5322 `.eml` with `X-Actiontrack-Status: draft-not-created`, filename-safe owner slug (G17), never overwrites.
+  $ - Targets the mcp 2.x SDK, pinned to `mcp>=2.3,<3` (G16).
+  $ 
+  $ ## Gaps confirmed
+  $ G8, G16, G17, G18, G19 — recorded in `spec/plan.md` §5 and folded into `requirements.md` §10.1.
+  $ 
+  $ ## Test cases
+  $ TC-M10-01 … TC-M10-18 in `tests/integration/test_gmail_mcp.py`. An autouse fixture asserts that no fake ever receives `send_message`, `reply` or `forward` (TC-M10-02).
+  $ 
+  $ ## Gate
+  $ - `pytest`: 550 passed, 1 skipped
+  $ - `ruff check`, `ruff format --check`, `mypy --strict actiontrack`: clean
+  $ - Coverage: `gmail_mcp.py` 95%, `outbox.py` 100%
+  $ 
+  $ 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+  $ MSG
+  $ )"
+
+  [result]:
+    REQ-GEN-01 REQ-MCP-01 REQ-MCP-02 REQ-MCP-03 REQ-MCP-04 REQ-MCP-05 
+    warning: in the working copy of 'spec/modules/M10-gmail-mcp/tasks.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M10-gmail-mcp/tests.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/email/gmail_mcp.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/email/outbox.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/mcp_fakes.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/test_gmail_mcp.py', LF will be replaced by CRLF the next time Git touches it
+    remote:      https://github.com/mohit-gupta-coditas/actiontrack-py/pull/new/feat/m10-gmail-mcp        
+    remote: 
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10
+
+  [tool: Bash] [Link PR on status board and push]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; sed -i 's#^| M10 | Draft | ☑ | ☑ | ☑ | — |#| M10 | Draft | ☑ | ☑ | ☑ | [\#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10) |#' spec/plan.md; grep -n "^| M10 |" spec/plan.md; git commit -qam "M10: link PR #10 on the status board
+  $ 
+  $ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>&1 | tail -1; git log --oneline -3
+
+  [result]:
+    92:| M10 | Draft | ☑ | ☑ | ☑ | [#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10) |
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    bf8650a M10: link PR #10 on the status board
+    76e50ad M10: Gmail MCP adapter (allowlisted create_draft, schema checks, outbox)
+    a2f781d M10: confirm gaps G8, G16, G17, G18 and G19 in the specs
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M10 is done, and PR [#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10) is open on `feat/m10-gmail-mcp`. All 550 tests pass, and `ruff` and `mypy --strict` report no issues. Coverage is 95% for `gmail_mcp.py` and 100% for `outbox.py`.
+
+**Gaps:** you picked the recommended option for all four. I added them as G16–G19 in [spec/plan.md](spec/plan.md) §5 and in `requirements.md` §10.1. I also marked G8 (configurable argument names) as confirmed, since M10 implements it.
+- **G16:** the spec was written for the old `mcp` 1.x library, but 2.3.0 is installed and several names changed. M10 now uses the 2.x names, and `pyproject.toml` pins `mcp>=2.3,<3`. If the server lists its tools across several pages, the adapter goes through every page.
+- **G17:** outbox file names use a filename-safe form of the owner key. For example, `priya.shah@coditas.com` becomes `priya.shah-coditas.com`, and `name:Priya` becomes `name-priya`.
+- **G18:** if the server's `create_draft` requires an argument we don't send (such as `cc`), the adapter fails before calling it.
+- **G19:** if the server returns a link to the draft, that link is used. Otherwise the adapter builds `#drafts?compose=<id>`.
+
+**What was built:**
+- [gmail_mcp.py](actiontrack/email/gmail_mcp.py): `GmailMcpDraftSink`, whose only public method is `create_draft`. Every tool call first checks the hard-coded `{"create_draft"}` allowlist, so it cannot send. Timeouts, a server that won't start or can't be reached, and protocol errors all exit with code 3. Debug logs show argument names only, never the recipient, subject or body.
+- [outbox.py](actiontrack/email/outbox.py): `write_outbox` saves the email as a `.eml` file when no draft could be created. It never overwrites an existing file; it adds `-2`, `-3` and so on instead.
+- Tests: TC-M10-01 to 18 in [test_gmail_mcp.py](tests/integration/test_gmail_mcp.py), run against in-process fake Gmail servers. One check runs after every test and fails if `send_message`, `reply` or `forward` was ever called.
+
+**Changes from the spec wording:**
+- The fake servers use the low-level `mcp.server.Server` rather than `MCPServer`, because the tests need exact tool schemas and paged tool lists. I updated `tests.md` to say so.
+- `.eml` files use CRLF line endings, as the email standard requires, so the outbox test ignores line-ending differences when it checks the body.
+
+Q6 is still open: we don't yet know the real Gmail MCP server's launch command and argument names. They need to be confirmed before M12's manual smoke test.
+
+
+####################################################################################################
+USER:
+so for the real Gmail MCP server we using the mcp connector for gmail and the format is in  
+actiontrack followup <ownerper owner covering their openand overdue items, and creates a Gmail draft through the Gmail MCP connector. It never sends.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: ToolSearch]
+  query: select:mcp__claude_ai_Gmail__create_draft
+
+  [result]:
+
+  [tool: Grep]
+  pattern: followup|never sends|It never
+
+  [result]:
+    actiontrack\cli.py:239:    def followup(
+    actiontrack\cli.py:244:        Creates a Gmail draft (it never sends) with the owner's overdue and open items.
+    actiontrack\cli.py:248:          actiontrack followup priya
+    actiontrack\cli.py:249:          actiontrack followup "Rahul Sharma" --dry-run
+
+  [tool: AskUserQuestion]
+  Q [to_as_list]: G20: The Gmail connector's create_draft takes `to` as an array, but McpConfig defaults to to_as_list=false. With the defaults, the call would send a string, and the connector would reject it. Should the defaults match the connector?
+    - Default to_as_list=true (Recommended): The out-of-the-box config matches the Gmail connector: to=["x@…"], subject, body. A different server can still set to_as_list=false. Updates config.py, the root spec's config example and TC-M10-01.
+    - Keep false, document it: Leave the default alone and add to_as_list = true to the root spec's [gmail_mcp] example. Users must remember to set it.
+  Q [viewUrl]: G21: The connector returns the draft's link as `viewUrl`. The G19 parser only looks for `link`/`url`, so it would build the #drafts?compose=<id> fallback instead. Should `viewUrl` be recognised?
+    - Add viewUrl first (Recommended): Link keys become viewUrl, link, url, in that order. TC-M10-13 gets a viewUrl case.
+    - Keep link/url only: Always use the built fallback link for this connector.
+  Q [Connect]: G22: The Gmail connector is a hosted MCP server that needs OAuth. The M10 adapter connects without any auth (REQ-MCP-05: the CLI reads and stores no credentials). How should the CLI reach the connector?
+    - Configured endpoint, no auth in CLI (Recommended): Keep the adapter auth-free. [gmail_mcp] points at an endpoint that already handles auth, over http (url) or through a stdio bridge command. Record Q6 as answered: Gmail MCP connector, create_draft(to[], subject, body). Confirm the endpoint during M12's smoke test. No code change.
+    - Add OAuth to the CLI: Use the mcp SDK's OAuth client provider for the http transport, with tokens kept in the OS keyring. This relaxes REQ-MCP-05 and makes M10 bigger (browser login flow and token storage).
+    - Bearer token from env: Read ACTIONTRACK_GMAIL_MCP_TOKEN and send it as an Authorization header over http. Nothing is stored on disk, but the CLI does read a credential, so REQ-MCP-05 must be reworded.
+
+  [result]:
+    Your questions have been answered: "G20: The Gmail connector's create_draft takes `to` as an array, but McpConfig defaults to to_as_list=false. With the defaults, the call would send a string, and the connector would reject it. Should the defaults match the connector?"="Default to_as_list=true (Recommended)", "G21: The connector returns the draft's link as `viewUrl`. The G19 parser only looks for `link`/`url`, so it would build the #drafts?compose=<id> fallback instead. Should `viewUrl` be recognised?"="Add viewUrl first (Recommended)", "G22: The Gmail connector is a hosted MCP server that needs OAuth. The M10 adapter connects without any auth (REQ-MCP-05: the CLI reads and stores no credentials). How should the CLI reach the connector?"="Configured endpoint, no auth in CLI (Recommended)". You can now continue with these answers in mind.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All three recommended. I'll add these to PR #10 on the same branch.
+
+  [tool: Bash] [Find to_as_list usages and Q6 references]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; git status --short; grep -rn "to_as_list" --include=*.py --include=*.md . | grep -v .venv; grep -n "Q6\|draft_tool = \|args = \[\]" spec/requirements.md
+
+  [result]:
+    ./actiontrack/config.py:59:    to_as_list: bool = False
+    ./actiontrack/config.py:225:        elif name == "to_as_list":
+    ./actiontrack/email/gmail_mcp.py:87:                        names["to"]: [to] if cfg.to_as_list else to,
+    ./spec/modules/M0-foundation/spec.md:71:    to_as_list: bool = False
+    ./spec/modules/M10-gmail-mcp/spec.md:54:4. Build the arguments: `{arg_names.to: [to] if to_as_list else to, arg_names.subject: subject, arg_names.body: body}`.
+    ./spec/modules/M10-gmail-mcp/tests.md:17:| TC-M10-08 | Same fake, `arg_names.to="recipients"`, `to_as_list=True` | `create_draft` | Succeeds. The fake received `recipients == ["x@…"]` | REQ-MCP-01 (G8) |
+    ./spec/plan.md:113:| G8 ✅ | The Gmail MCP server's `create_draft` argument names/shapes are unknown (Q6) | Configurable argument mapping (`arg_names`, `to_as_list`), validated against the tool's `inputSchema` | M10 |
+    ./tests/integration/test_gmail_mcp.py:115:    draft(sink(fake, arg_names=names, to_as_list=True))
+    ./tests/unit/core/test_config.py:88:to_as_list = true
+    ./tests/unit/core/test_config.py:99:    assert (mcp.transport, mcp.url, mcp.args, mcp.to_as_list, mcp.timeout_s) == (
+    ./tests/unit/core/test_config.py:161:        ('[gmail_mcp]\nto_as_list = "yes"\n', "gmail_mcp.to_as_list"),
+    313:  draft_tool = "create_draft"
+    ... [2 more lines]
+
+  [tool: Bash] [Read surrounding text for edits]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; sed -n 80,105p tests/unit/core/test_config.py; sed -n 300,316p spec/requirements.md; sed -n 480,490p spec/requirements.md; sed -n 505,516p spec/requirements.md; sed -n 62,76p spec/modules/M0-foundation/spec.md; grep -n "Q6\|Link (G19)" -A2 spec/modules/M10-gmail-mcp/spec.md
+
+  [result]:
+    [parsing]
+    date_order = "mdy"
+    
+    [gmail_mcp]
+    transport = "http"
+    url = "http://localhost:9000/mcp"
+    args = ["--a"]
+    arg_names = { to = "recipients" }
+    to_as_list = true
+    timeout_s = 5
+    """,
+        )
+    ... [74 more lines]
+
+  [tool: Write]
+  C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\g20_edits.py
+
+  [result]:
+    File created successfully at: C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\g20_edits.py (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Apply G20–G22 edits and run the gate]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; python "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7/scratchpad/g20_edits.py" . && uv run ruff format -q actiontrack tests && uv run ruff check . && uv run mypy --strict actiontrack | tail -1 && uv run pytest -q 2>&1 | tail -1; git diff --stat
+
+  [result]:
+    ok
+    All checks passed!
+    Success: no issues found in 24 source files
+    551 passed, 1 skipped, 1 deselected in 27.01s
+    warning: in the working copy of 'actiontrack/email/gmail_mcp.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M10-gmail-mcp/tests.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/test_gmail_mcp.py', LF will be replaced by CRLF the next time Git touches it
+     actiontrack/config.py               |  2 +-
+     actiontrack/email/gmail_mcp.py      |  5 ++---
+     spec/modules/M0-foundation/spec.md  |  2 +-
+     spec/modules/M10-gmail-mcp/spec.md  |  7 +++++--
+    ... [7 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Gate passes. Committing the spec change and the code change separately, as before, then pushing to PR #10.
+
+  [tool: Bash] [Commit spec and code, push to PR branch]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; git add spec && git commit -q -F - <<'MSG'
+  $ M10: confirm gaps G20, G21 and G22 (Gmail MCP connector, Q6)
+  $ 
+  $ - requirements.md §10.1 and Q6: the server is the Gmail MCP connector, create_draft(to: [str],
+  $   subject, body) returning id/threadId/viewUrl; to_as_list defaults to true (G20); viewUrl is
+  $   the preferred link (G21); the CLI stays auth-free and points at an already-authenticated
+  $   endpoint, confirmed in M12's smoke test (G22).
+  $ - plan.md: G20-G22 recorded and resolved. M0 spec: McpConfig.to_as_list default.
+  $ - M10 spec/tests: TC-M10-01 uses the list default, TC-M10-08 the string form, TC-M10-13 viewUrl.
+  $ 
+  $ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  $ MSG
+  $ git add -A && git commit -q -F - <<'MSG'
+  $ M10: match the Gmail MCP connector (to as a list, viewUrl link)
+  $ 
+  $ - config: McpConfig.to_as_list defaults to true (G20).
+  $ - gmail_mcp: link keys are viewUrl, link, url, in that order (G21).
+  $ - tests: default-config call sends to=[...]; string recipients via to_as_list=false; viewUrl
+  $   result form.
+  $ 
+  $ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  $ MSG
+  $ git push -q 2>&1 | tail -1; git log --oneline -3
+
+  [result]:
+    warning: in the working copy of 'spec/modules/M10-gmail-mcp/tests.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/email/gmail_mcp.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/test_gmail_mcp.py', LF will be replaced by CRLF the next time Git touches it
+    5e17e9c M10: match the Gmail MCP connector (to as a list, viewUrl link)
+    55849f6 M10: confirm gaps G20, G21 and G22 (Gmail MCP connector, Q6)
+    bf8650a M10: link PR #10 on the status board
+
+  [tool: Bash] [Update PR #10 description]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; body=$(gh pr view 10 --json body -q .body); body=${body/G8, G16, G17, G18, G19 — recorded/G8, G16–G22 — recorded}; body=${body/550 passed/551 passed}; body=${body/## Test cases/## Gmail MCP connector (Q6)
+  $ The real server is the Gmail MCP connector: \`create_draft(to: [str], subject, body)\` returning \`id\`, \`threadId\`, \`viewUrl\`. \`to_as_list\` now defaults to \`true\` (G20), \`viewUrl\` is the preferred link (G21), and the adapter stays auth-free, pointing at an already-authenticated endpoint that M12's smoke test will confirm (G22).
+  $ 
+  $ ## Test cases}; gh pr edit 10 --body "$body" | tail -1
+
+  [result]:
+    Permission for this command was denied by a built-in Claude Code safety check, not by the user. The check stops removals that can delete far more than intended: a system, home or workspace directory, or a target it cannot resolve, such as a shell variable that, if unset or empty, turns this into `rm -rf /` or `rm -rf /*`. Only a person may approve such a removal, and no person did (the permission prompt timed out, or none was shown). The command was NOT run; do not claim it succeeded. Do not work around the check by splitting, scripting, or re-issuing the removal through another tool or shell: the check exists because a removal like this can destroy the user's data, and getting past it would not make it safe. If the text below suggests a safe rewrite, run that instead; it goes through the same check. Otherwise finish the rest of the task without this removal, tell the user what you wanted to delete and why, and leave the removal to them. What was flagged: This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed. This requires explicit approval.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The PR description edit was blocked because the shell substitutions couldn't be parsed safely. I'll retry using a file.
+
+  [tool: Bash] [Save current PR body to scratchpad]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; gh pr view 10 --json body -q .body > "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7/scratchpad/pr10.md"
+
+  [result]:
+    (Bash completed with no output)
+
+  [tool: Read]
+  C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\pr10.md
+
+  [result]:
+    1	Implements [M10 — Gmail MCP adapter](spec/modules/M10-gmail-mcp/spec.md).
+    2	
+    3	## Summary
+    4	- `GmailMcpDraftSink` (`actiontrack/email/gmail_mcp.py`): the MCP client can only create drafts. `create_draft` is its only public method, and `_call` checks the hard-coded `ALLOWED_TOOLS = {"create_draft"}` before every tool call. A config that points `draft_tool` at another tool fails at construction.
+    5	- stdio / streamable-HTTP transports from `[gmail_mcp]`; `list_tools` pagination; input-schema validation (G8, G18); `is_error`, timeout, launch and protocol failures → `ExternalServiceError` (exit 3).
+    6	- Draft ID and link parsing; the link the server returns wins over the built `#drafts?compose=<id>` link (G19).
+    7	- `write_outbox` (`actiontrack/email/outbox.py`): RFC 5322 `.eml` with `X-Actiontrack-Status: draft-not-created`, filename-safe owner slug (G17), never overwrites.
+    8	- Targets the mcp 2.x SDK, pinned to `mcp>=2.3,<3` (G16).
+    9	
+    10	## Gaps confirmed
+    11	G8, G16, G17, G18, G19 — recorded in `spec/plan.md` §5 and folded into `requirements.md` §10.1.
+    12	
+    ... [10 more lines]
+
+  [tool: Edit]
+  C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\pr10.md
+
+  [result]:
+    The file C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\pr10.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [tool: Edit]
+  C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\pr10.md
+
+  [result]:
+    The file C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\pr10.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Update PR #10 description from file]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; gh pr edit 10 --body-file "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7/scratchpad/pr10.md"
+
+  [result]:
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I've set M10 up for the Gmail MCP connector as the real server, which answers Q6, and pushed the changes to PR [#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10). All tests pass (551), and `ruff` and `mypy --strict` are clean.
+
+I checked the connector's `create_draft`: it takes `to` as a **list** of addresses plus `subject` and `body`, and returns `id`, `threadId` and a `viewUrl` link to the draft. You picked the recommended option for each of the three new gaps:
+
+- **G20:** with the old settings, `to` went out as a single string, and the connector would have rejected it. The default is now to send it as a list, so it works without extra config; other servers can set `to_as_list = false`.
+- **G21:** the draft link now comes from the connector's `viewUrl`, ahead of `link` or `url`. Before, the adapter ignored `viewUrl` and built its own `#drafts?compose=<id>` link.
+- **G22:** the CLI still handles no login or credentials. `[gmail_mcp]` must point at an address for the connector that is already signed in to Gmail, either a URL or a local bridge command.
+
+The specs record all three, with Q6 marked answered. The code changes are small: the new default in [config.py](actiontrack/config.py), the `viewUrl` lookup in [gmail_mcp.py](actiontrack/email/gmail_mcp.py), and the updated tests. The PR description now covers them too.
+
+**Still to do:** we don't yet have the connector's actual URL or bridge command, or a confirmed working login. That gets settled in M12's manual smoke test. The `followup <owner>` command itself is M11. Its help text already says it creates a Gmail draft and never sends.
+
+
+####################################################################################################
+USER:
+can you pull to main
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: Bash] [Check PR #10 merge readiness]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; git status --short; gh pr view 10 --json state,mergeable,mergeStateStatus,statusCheckRollup -q '{state,mergeable,mergeStateStatus,checks:[.statusCheckRollup[]?|{name,conclusion}]}'
+
+  [result]:
+    {"checks":[],"mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","state":"MERGED"}
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+PR #10 is already merged. Updating local `main`.
+
+  [tool: Bash] [Switch to main and fast-forward pull]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; git checkout -q main && git pull -q --ff-only && git log --oneline -5 && git status -sb | head -1
+
+  [result]:
+    ce3173a Merge pull request #10 from mohit-gupta-coditas/feat/m10-gmail-mcp
+    5e17e9c M10: match the Gmail MCP connector (to as a list, viewUrl link)
+    55849f6 M10: confirm gaps G20, G21 and G22 (Gmail MCP connector, Q6)
+    bf8650a M10: link PR #10 on the status board
+    76e50ad M10: Gmail MCP adapter (allowlisted create_draft, schema checks, outbox)
+    ## main...origin/main
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+PR #10 had already been merged on GitHub, so there was nothing left to merge. I switched to `main` and pulled. Your local `main` now matches `origin/main` at `ce3173a` (the PR #10 merge) and includes all the M10 commits. The working tree is clean.
+
+The local `feat/m10-gmail-mcp` branch is still there; I can delete it if you like. M11, the `followup` command, is next.
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv11.txt in conversations folder
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: Bash] [Check conversations folder and transcript file]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; ls conversations 2>&1 | head; ls -la "/c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/" | grep eb6d3963; head -c 1500 conversations/conv1.txt 2>/dev/null
+
+  [result]:
+    conv1.txt
+    conv2.txt
+    conv3.txt
+    conv4.txt
+    conv5.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 1574378 Nov 26 02:02 eb6d3963-2525-46ad-aa49-126469eeb8c7.jsonl
+    actiontrack — Conversation 1 (spec & SDD planning)
+    Session: 07eac96f-814b-4807-ae16-5a0afaba949a
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo (spec/).
+    ====================================================================================================
+    
+    ... [28 more lines]
+
+  [tool: Bash] [Inspect existing export format]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/conversations; grep -n "^[A-Z][A-Z ]*:\|^\[" conv5.txt | head -30; head -8 conv5.txt; sed -n 20,60p conv5.txt; git -C .. check-ignore conversations && echo ignored
+
+  [result]:
+    Exit code 1
+    9:USER:
+    14:CLAUDE:
+    289:CLAUDE:
+    339:CLAUDE:
+    348:CLAUDE:
+    385:CLAUDE:
+    407:CLAUDE:
+    452:CLAUDE:
+    533:CLAUDE:
+    583:CLAUDE:
+    626:CLAUDE:
+    ... [61 more lines]
+
+  [tool: Bash] [View export block formatting]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/conversations; sed -n 9,19p conv5.txt; sed -n 285,300p conv5.txt; sed -n 1090,1115p conv5.txt
+
+  [result]:
+    USER:
+    work on M4
+    
+    
+    ----------------------------------------------------------------------------------------------------
+    CLAUDE:
+    I'll start by looking at the repo to find what M4 covers.
+    
+      [tool: Bash] [List tracked files and read CLAUDE.md]
+      $ git ls-files | head -100 && cat CLAUDE.md 2>/dev/null | head -100
+      [result]:
+        ... [24 more lines]
+    ... [40 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll write a converter for this session's transcript that follows the same format.
+
+  [tool: Bash] [Survey transcript JSONL record types]
+  $ cd "/c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/"; python -c "
+  $ import json,collections
+  $ c=collections.Counter()
+  $ for l in open('eb6d3963-2525-46ad-aa49-126469eeb8c7.jsonl',encoding='utf-8'):
+  $     d=json.loads(l); t=d.get('type'); m=d.get('message') or {}
+  $     cont=m.get('content'); kinds=[x.get('type') for x in cont] if isinstance(cont,list) else [type(cont).__name__]
+  $     c[(t,m.get('role'),tuple(kinds), bool(d.get('isMeta')), bool(d.get('isSidechain')))]+=1
+  $ for k,v in c.items(): print(v,k)
+  $ "
+
+  [result]:
+    8 ('queue-operation', None, ('NoneType',), False, False)
+    3 ('user', 'user', ('text',), False, False)
+    28 ('attachment', None, ('NoneType',), False, False)
+    4 ('file-history-snapshot', None, ('NoneType',), False, False)
+    30 ('atis-latch', None, ('NoneType',), False, False)
+    29 ('last-prompt', None, ('NoneType',), False, False)
+    29 ('ai-title', None, ('NoneType',), False, False)
+    2 ('api-request-shape', None, ('NoneType',), False, False)
+    1 ('api-request-blob', 'user', ('text', 'text', 'text', 'text'), False, False)
+    1 ('api-request-blob', 'system', ('text', 'tool_addition', 'tool_addition', 'tool_addition'), False, False)
+    47 ('api-request', None, ('NoneType',), False, False)
+    7 ('tools-used', None, ('NoneType',), False, False)
+    ... [15 more lines]
+
+  [tool: Write]
+  C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\export_conv.py
+
+  [result]:
+    File created successfully at: C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\eb6d3963-2525-46ad-aa49-126469eeb8c7\scratchpad\export_conv.py (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Export transcript to conv11.txt and spot-check]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker; python "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7/scratchpad/export_conv.py" "/c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7.jsonl" conversations/conv11.txt "actiontrack — Conversation 11 (M10 Gmail MCP adapter: gaps, implement, connector, PR, merge)"; grep -n -A3 "^USER:" conversations/conv11.txt; wc -l conversations/conv11.txt; tail -15 conversations/conv11.txt
+

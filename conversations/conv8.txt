@@ -1,0 +1,1842 @@
+actiontrack — Conversation 8 (M7 ingest: implement, PR, merge)
+Session: 40fa2a55-2010-4d82-bbef-9c8d278b7bbe
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on M7 module
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll start by finding what M7 is in the project's plan and status board.
+
+  [tool: Bash] [Explore repo layout and find M7 references]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && ls -a && cat CLAUDE.md 2>/dev/null | head -100 && git log --oneline | head -30 && grep -rn "M7" --include=*.md . | grep -v node_modules | head -40
+  [result]:
+    .
+    ..
+    .coverage
+    .git
+    .gitignore
+    .mypy_cache
+    .pytest_cache
+    .python-version
+    .ruff_cache
+    .venv
+    README.md
+    actiontrack
+    pyproject.toml
+    spec
+    tests
+    uv.lock
+    55af035 M6: confirm gaps G1 and G2 in the root spec
+    73057c2 M6: link PR #6 on the status board
+    3dd8f37 M6: SQLite store (connection, migrations, schema v1, repositories)
+    db29b1e Merge pull request #5 from mohit-gupta-coditas/feat/m5-dedup
+    3e494b8 M5: link PR #5 on the status board
+    0168eb3 M5: dedup & item IDs (normalization, exact/fuzzy grouping, merged fields, ID prefixes)
+    9e129b8 Merge pull request #4 from mohit-gupta-coditas/feat/m4-item-extraction
+    ae8ba25 M4: link PR #4 on the status board
+    4e306ba M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+    64e2287 Merge pull request #3 from mohit-gupta-coditas/feat/m3-dates
+    f26ab9d M3: link PR #3 on the status board
+    49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    eb52c66 M2: people & owner resolution (attendee parsing, roster, owner rules, email derivation)
+    4877a8e M0: mark T0.12 done and record merge in status board
+    5cfe703 M1: tick T1.9 and link PR #1 on the status board
+    79eea25 Merge pull request #1 from mohit-gupta-coditas/feat/m1-note-loader
+    5795c54 M1: note loader (frontmatter/heading layouts, dates, attendees, skip reasons)
+    7ba9395 M0: foundation (packaging, errors, clock, config, console, models, CLI skeleton)
+    7c34282 Add implementation plan and module specs M1-M12
+    cd12aa1 Add requirements and architecture spec for actiontrack
+    ./spec/modules/M0-foundation/spec.md:124:  M7, M8 and M11 replace them. `config show` is implemented here.
+    ./spec/modules/M0-foundation/spec.md:161:class SkipRecord:          # M1 / M7 output
+    ... [21 more lines]
+  [tool: Bash] [Read M7 spec, tasks, tests, and plan]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat spec/modules/M7-ingest/spec.md spec/modules/M7-ingest/tasks.md spec/modules/M7-ingest/tests.md && cat spec/plan.md && ls spec spec/modules/*
+  [tool: Bash] [List branches, PRs, and source/test files]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git branch -a && gh pr list --state all 2>/dev/null | head && find actiontrack tests -type f -not -path "*/__pycache__/*" | sort && cat pyproject.toml
+  [result]:
+    # M7 — `ingest` Command
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M1, M2, M3 (via M4), M4, M5, M6 |
+    | **Files** | `actiontrack/services/ingest.py`, the `ingest` command in `actiontrack/cli.py` |
+    | **REQ IDs** | REQ-INGEST-01 … 09, REQ-GEN-02 |
+    
+    ## 1. Purpose
+    Orchestrate notes → DB: scan the folder, load and parse changed notes, persist the sources, regroup all items, and produce the
+    ingest report. Bad input never stops the run.
+    
+    ## 2. Interface
+    
+    ```python
+    class ProgressSink(Protocol):
+        def start(self, total: int) -> None: ...
+        def advance(self, path: Path) -> None: ...
+        def finish(self) -> None: ...
+    
+    def run_ingest(folder: Path, *, recursive: bool, conn: sqlite3.Connection, cfg: Config, clock: Clock,
+                   fuzzy_enabled: bool | None = None, progress: ProgressSink | None = None) -> IngestReport
+    ```
+    
+    CLI: `actiontrack ingest <folder> [--no-recursive] [--no-fuzzy] [--report-json PATH]`
+    
+    ## 3. Algorithm
+    
+    1. **Validate**: if `folder` doesn't exist or isn't a directory → `FatalError` (exit 1) (REQ-INGEST-08).
+    2. **Scan** (REQ-INGEST-01): `rglob("*")` (or `glob` with `--no-recursive`), keeping files whose suffix is `.md` (case-insensitive).
+       Hidden directories (`.git`, `.obsidian`, …) are skipped. Sorted by POSIX path. Paths are stored **resolved absolute**.
+    3. **Per file**, each wrapped in `try/except Exception` (REQ-GEN-02, REQ-INGEST-06):
+       1. Compute sha256. If `NoteRepo.get(path)` has the same hash: status `ok` → `unchanged += 1`; status `skipped` → the
+          stored reason is re-reported in `skipped` (the user still sees it every run). Either way, continue (REQ-INGEST-02).
+       2. `load_note` (M1). A `SkipRecord` → `NoteRepo.upsert_skipped` (removes any old sources), add it to `skipped`.
+       3. Else `build_roster` (M2) → `extract_items` (M4) → in **one transaction**: `NoteRepo.upsert_ok`, `SourceRepo.replace_for_note`
+          (REQ-INGEST-03), `PeopleRepo.upsert_many`. Warnings collected. `ingested += 1`.
+       4. An unexpected exception → roll back that file's transaction, add `SkipRecord(INTERNAL_ERROR, detail="<Type>: <msg>")`,
+          continue. With `--debug` the traceback is logged.
+    ... [29 more lines]
+  [result]:
+      feat/m0-foundation
+      feat/m2-people
+      feat/m3-dates
+      feat/m5-dedup
+    * feat/m6-store
+      main
+      remotes/origin/HEAD -> origin/main
+      remotes/origin/feat/m2-people
+      remotes/origin/feat/m3-dates
+      remotes/origin/feat/m4-item-extraction
+      remotes/origin/feat/m5-dedup
+      remotes/origin/feat/m6-store
+      remotes/origin/main
+    6	M6: SQLite store	feat/m6-store	MERGED	2026-11-25T18:10:19Z
+    5	M5: dedup & item IDs	feat/m5-dedup	MERGED	2026-11-25T17:58:59Z
+    4	M4: action item extraction	feat/m4-item-extraction	MERGED	2026-11-25T17:38:34Z
+    3	M3: due-date extraction & resolution	feat/m3-dates	MERGED	2026-11-25T15:46:20Z
+    2	M2: people & owner resolution	feat/m2-people	MERGED	2026-11-25T15:31:57Z
+    1	M1: note loader	feat/m1-note-loader	MERGED	2026-11-25T15:21:07Z
+    actiontrack/__init__.py
+    actiontrack/__main__.py
+    actiontrack/cli.py
+    actiontrack/clock.py
+    actiontrack/config.py
+    actiontrack/console.py
+    actiontrack/dedup.py
+    actiontrack/errors.py
+    actiontrack/models.py
+    actiontrack/parsing/__init__.py
+    actiontrack/parsing/dates.py
+    actiontrack/parsing/items.py
+    actiontrack/parsing/note_loader.py
+    actiontrack/parsing/people.py
+    actiontrack/store/__init__.py
+    actiontrack/store/db.py
+    actiontrack/store/migrations/0001_init.sql
+    actiontrack/store/repo.py
+    tests/__init__.py
+    tests/conftest.py
+    tests/fixtures/notes/loader/attendees_heading.md
+    ... [91 more lines]
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M6 is merged, so I'll branch `feat/m7-ingest` from an up-to-date `main`, then read the modules M7 orchestrates.
+
+  [tool: Bash] [Create M7 branch and read core modules]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git checkout main -q && git pull -q && git checkout -b feat/m7-ingest && git log --oneline -3 && cat actiontrack/cli.py actiontrack/models.py actiontrack/errors.py actiontrack/console.py actiontrack/clock.py
+  [result]:
+    Switched to a new branch 'feat/m7-ingest'
+    7b58e7a Merge pull request #6 from mohit-gupta-coditas/feat/m6-store
+    55af035 M6: confirm gaps G1 and G2 in the root spec
+    73057c2 M6: link PR #6 on the status board
+    """Typer app: argument parsing, output formatting and exception → exit-code mapping only.
+    
+    Heavy dependencies (dateparser, rapidfuzz, mcp, jinja2) must only be imported inside command
+    functions, never at module level here or in anything imported from here (REQ-CLI-08).
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import os
+    import sys
+    import traceback
+    from collections.abc import Mapping, Sequence
+    from dataclasses import dataclass
+    from pathlib import Path
+    from typing import Annotated, Any
+    
+    import typer
+    from rich.table import Table
+    
+    # Typer vendors Click; its ClickException (usage errors, bad parameters) is not re-exported.
+    from typer._click.exceptions import ClickException
+    
+    from actiontrack import __version__
+    from actiontrack.clock import Clock, clock_from_env
+    from actiontrack.config import Config, load_config, settings_view
+    from actiontrack.console import Output, configure_stdio_utf8, make_output
+    from actiontrack.errors import ActionTrackError, ExitCode, FatalError
+    from actiontrack.models import JSON_SCHEMA_VERSION, to_jsonable
+    
+    PROG_NAME = "actiontrack"
+    DEBUG_ENV = "ACTIONTRACK_DEBUG"
+    CONTEXT_SETTINGS: dict[str, Any] = {"help_option_names": ["-h", "--help"]}
+    
+    
+    @dataclass
+    ... [78 more lines]
+  [tool: Bash] [Read config and store modules]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat actiontrack/config.py actiontrack/store/db.py actiontrack/store/repo.py
+  [tool: Bash] [List parsing and dedup public signatures]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n "^def \|^class \|^    def \|^[A-Z_]* = " actiontrack/parsing/*.py actiontrack/dedup.py && sed -n '/^def load_note/,/^    """/p;/^def build_roster/,/"""$/p;/^def extract_items/,/^    """$/p' actiontrack/parsing/*.py | head -60 && sed -n '/^class DedupConfig/,/^$/p;/^class GroupResult/,/^$/p;/^def group_items/,/"""/p' actiontrack/dedup.py
+  [result]:
+    <persisted-output>
+    Output too large (30.8KB). Full output saved to: C:\Users\Coditas-Admin\.claude\projects\c--Users-Coditas-Admin-Desktop-actionTracker\40fa2a55-2010-4d82-bbef-9c8d278b7bbe\tool-results\b3uacqyqj.txt
+    
+    Preview (first 2KB):
+    """Effective configuration: flags > env (ACTIONTRACK_*) > TOML file > defaults (REQ-CLI-07)."""
+    
+    from __future__ import annotations
+    
+    import tomllib
+    from collections.abc import Mapping
+    from dataclasses import dataclass, field
+    from pathlib import Path
+    from types import MappingProxyType
+    from typing import Any, Literal
+    
+    import platformdirs
+    
+    from actiontrack.errors import UserInputError
+    
+    APP_NAME = "actiontrack"
+    
+    Source = Literal["flag", "env", "file", "default"]
+    DateOrder = Literal["DMY", "MDY"]
+    
+    ENV_KEYS: Mapping[str, str] = MappingProxyType(
+        {
+            "ACTIONTRACK_DB": "db_path",
+            "ACTIONTRACK_EMAIL_DOMAIN": "email_domain",
+            "ACTIONTRACK_FUZZY_THRESHOLD": "fuzzy_threshold",
+            "ACTIONTRACK_DATE_ORDER": "date_order",
+        }
+    )
+    
+    # TOML (section, key) → Config field. A `None` section means the top level.
+    _FILE_KEYS: Mapping[tuple[str | None, str], str] = MappingProxyType(
+        {
+            (None, "db_path"): "db_path",
+            (None, "outbox_dir"): "outbox_dir",
+            ("email", "domain"): "email_domain",
+            ("email", "sign_off"): "sign_off",
+    ... [33 more lines]
+  [result]:
+    actiontrack/parsing/dates.py:19:_WEEKDAY = (
+    actiontrack/parsing/dates.py:23:_MONTH = (
+    actiontrack/parsing/dates.py:27:_WEEKDAY_INDEX = {d: i for i, d in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
+    actiontrack/parsing/dates.py:30:_EXPR = r"(?P<expr>(?:(?! - )[^,;()])+)"
+    actiontrack/parsing/dates.py:31:_CONNECTOR = re.compile(
+    actiontrack/parsing/dates.py:36:_ON = re.compile(rf"\bon\s+(?=(?:{_WEEKDAY}|{_MONTH})\b|\d){_EXPR}", re.IGNORECASE)
+    actiontrack/parsing/dates.py:37:_KEYWORD = re.compile(
+    actiontrack/parsing/dates.py:42:_ISO = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+    actiontrack/parsing/dates.py:43:_TRAILING = " \t.!"
+    actiontrack/parsing/dates.py:45:_ISO_FULL = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    actiontrack/parsing/dates.py:46:_WEEKDAY_EXPR = re.compile(rf"^(?:(this|next)\s+)?({_WEEKDAY})$")
+    actiontrack/parsing/dates.py:47:_MONTH_WORD = re.compile(rf"\b(?:{_MONTH})\b")
+    actiontrack/parsing/dates.py:48:_NUMERIC_DATE = re.compile(r"\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b")
+    actiontrack/parsing/dates.py:49:_HAS_YEAR = re.compile(r"\b\d{4}\b|\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b")
+    actiontrack/parsing/dates.py:52:class _Phrase(NamedTuple):
+    actiontrack/parsing/dates.py:61:def extract_due(text: str, *, anchor: date, date_order: DateOrder = "DMY") -> DueResolution:
+    actiontrack/parsing/dates.py:75:def resolve_expr(expr: str, *, anchor: date, date_order: DateOrder = "DMY") -> date | None:
+    actiontrack/parsing/dates.py:80:def parse_user_date(text: str, *, today: date, date_order: DateOrder = "DMY") -> date:
+    actiontrack/parsing/dates.py:88:def _find_phrases(text: str) -> list[_Phrase]:
+    actiontrack/parsing/dates.py:100:def _pick(phrases: list[_Phrase]) -> _Phrase | None:
+    actiontrack/parsing/dates.py:109:def _resolve(
+    actiontrack/parsing/dates.py:142:def _calendar_date(e: str, *, anchor: date, date_order: DateOrder) -> date | None:
+    actiontrack/parsing/items.py:22:_FENCE = re.compile(r"^\s*(?:```|~~~)")
+    actiontrack/parsing/items.py:23:_CHECKBOX = re.compile(r"^\s*[-*+]\s+\[(?P<marker>[ xX])\]\s+(?P<body>\S.*)$")
+    actiontrack/parsing/items.py:24:_EMPTY_CHECKBOX = re.compile(r"^\s*[-*+]\s+\[[ xX]\]\s*$")
+    actiontrack/parsing/items.py:25:_MALFORMED = (
+    actiontrack/parsing/items.py:32:_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+    actiontrack/parsing/items.py:34:_EMPHASIS = re.compile(r"\*+|(?<!\w)_+|_+(?!\w)")
+    actiontrack/parsing/items.py:37:_NAME = r"@?[\w.'-]+(?:\s+(?!and\b)[\w.'-]+){0,2}?"
+    actiontrack/parsing/items.py:38:_OWNER_SEPARATOR = r"\s*,\s*|\s*&\s*|\s+and\s+"
+    actiontrack/parsing/items.py:39:_LEADING_OWNER = re.compile(
+    actiontrack/parsing/items.py:44:_SPLIT_OWNERS = re.compile(_OWNER_SEPARATOR)
+    actiontrack/parsing/items.py:45:_MENTION = re.compile(r"(?<![\w.@])@(?P<handle>\w[\w.'-]*\w|\w)")
+    actiontrack/parsing/items.py:47:_EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]")
+    actiontrack/parsing/items.py:48:_TASK_EDGES = " \t,;:-\u2013\u2014"
+    actiontrack/parsing/items.py:51:class CheckboxLine(NamedTuple):
+    actiontrack/parsing/items.py:56:class MalformedCheckbox(NamedTuple):
+    actiontrack/parsing/items.py:60:class OwnerSplit(NamedTuple):
+    actiontrack/parsing/items.py:66:def extract_items(
+    actiontrack/parsing/items.py:118:def classify_line(line: str) -> CheckboxLine | MalformedCheckbox | None:
+    ... [11 more lines]
+  [tool: Read] C:\Users\Coditas-Admin\.claude\projects\c--Users-Coditas-Admin-Desktop-actionTracker\40fa2a55-2010-4d82-bbef-9c8d278b7bbe\tool-results\b3uacqyqj.txt
+  [result]:
+    60	    timeout_s: float = 30.0
+    61	
+    62	
+    63	@dataclass(frozen=True)
+    64	class Config:
+    65	    db_path: Path
+    66	    outbox_dir: Path
+    67	    email_domain: str = "coditas.com"
+    68	    sign_off: str = "Thanks"
+    69	    fuzzy_enabled: bool = True
+    70	    fuzzy_threshold: int = 88  # 0..100
+    71	    date_order: DateOrder = "DMY"
+    72	    gmail_mcp: McpConfig = field(default_factory=McpConfig)
+    73	    sources: Mapping[str, Source] = field(default_factory=dict)  # where each key came from
+    74	
+    75	
+    76	SETTING_KEYS: tuple[str, ...] = (
+    77	    "db_path",
+    78	    "outbox_dir",
+    79	    "email_domain",
+    80	    "sign_off",
+    81	    "fuzzy_enabled",
+    82	    "fuzzy_threshold",
+    83	    "date_order",
+    84	    "gmail_mcp",
+    85	)
+    86	
+    87	
+    88	def default_paths() -> tuple[Path, Path, Path]:
+    89	    """(config_file, db_path, outbox_dir) in the OS-native locations."""
+    90	    config_dir = Path(platformdirs.user_config_dir(APP_NAME, appauthor=False, roaming=True))
+    91	    data_dir = Path(platformdirs.user_data_dir(APP_NAME, appauthor=False))
+    92	    return config_dir / "config.toml", data_dir / "actiontrack.db", data_dir / "outbox"
+    93	
+    94	
+    95	def load_config(
+    96	    *, flags: Mapping[str, Any], env: Mapping[str, str], config_path: Path | None
+    97	) -> Config:
+    98	    """Merge all layers. `flags` maps Config field names to values; `None` means "not given"."""
+    99	    default_file, default_db, default_outbox = default_paths()
+    ... [59 more lines]
+  [tool: Bash] [Read dedup and note loader internals]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -n 1,140p actiontrack/dedup.py && sed -n 54,160p actiontrack/parsing/note_loader.py && sed -n 170,185p actiontrack/parsing/people.py
+  [tool: Bash] [Read test conftests, CLI tests, and fixtures]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat tests/conftest.py tests/integration/conftest.py tests/unit/conftest.py && sed -n 1,80p tests/unit/core/test_cli.py && grep -n "TC_M0_27\|ingest" -A12 tests/unit/core/test_cli.py | head -60 && sed -n 1,60p tests/integration/store/test_repo.py && cat tests/fixtures/notes/loader/frontmatter_valid.md tests/fixtures/notes/loader/heading_layout.md
+  [result]:
+    """Dedup & item IDs: parsed sources → unique action items with stable IDs (M5 spec).
+    
+    `group_items` is pure: the same sources and existing items always give the same groups, whatever
+    order they are passed in.
+    """
+    
+    from __future__ import annotations
+    
+    import hashlib
+    import re
+    import unicodedata
+    from collections.abc import Callable, Iterable, Sequence
+    from dataclasses import dataclass, field
+    from datetime import datetime
+    from typing import Literal
+    
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import (
+        ExistingItem,
+        Flag,
+        ItemGroup,
+        MergeDecision,
+        OwnerResolution,
+        ParsedItem,
+    )
+    
+    Scorer = Callable[[str, str], float]
+    
+    _NON_WORD = re.compile(r"[^\w\s]")
+    _STOP_WORDS = frozenset({"the", "a", "an"})
+    _HEX = re.compile(r"^[0-9a-f]+$")
+    _OWNER_FLAGS = frozenset(
+        {Flag.UNASSIGNED, Flag.AMBIGUOUS_OWNER, Flag.OWNER_NOT_ATTENDEE, Flag.MULTI_OWNER}
+    )
+    _MIN_PREFIX = 4
+    
+    
+    @dataclass(frozen=True)
+    class DedupConfig:
+        fuzzy_enabled: bool = True
+    ... [75 more lines]
+  [result]:
+    from __future__ import annotations
+    
+    from collections.abc import Iterator
+    from pathlib import Path
+    
+    import platformdirs
+    import pytest
+    
+    
+    @pytest.fixture(autouse=True)
+    def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
+        """Keep tests away from the real config/data dirs and from ACTIONTRACK_* / colour env vars."""
+        import os
+    
+        for name in list(os.environ):
+            if name.startswith("ACTIONTRACK_") or name in ("NO_COLOR", "FORCE_COLOR", "TTY_COMPATIBLE"):
+                monkeypatch.delenv(name, raising=False)
+        home = tmp_path / "platformdirs"
+        monkeypatch.setattr(
+            platformdirs, "user_config_dir", lambda *a, **k: str(home / "config" / "actiontrack")
+        )
+        monkeypatch.setattr(
+            platformdirs, "user_data_dir", lambda *a, **k: str(home / "data" / "actiontrack")
+        )
+        yield home
+    """Builders and fixtures shared by the integration tests: stored notes, sources and item groups."""
+    
+    from __future__ import annotations
+    
+    import sqlite3
+    from collections.abc import Iterator
+    from datetime import date, datetime
+    from pathlib import Path
+    from typing import Literal
+    
+    import pytest
+    
+    from actiontrack.dedup import make_item_id, normalize_task
+    from actiontrack.models import Flag, ItemGroup, NoteMeta, ParsedItem
+    from actiontrack.store.db import MEMORY, connect
+    ... [76 more lines]
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the root spec's ingest requirements and §9.1 report format.
+
+  [tool: Bash] [Read ingest requirements and prior module conventions]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n "REQ-INGEST\|REQ-GEN-02\|9\.1\|orphan" spec/requirements.md | head -40 && awk '/^### 9\.1/,/^### 9\.2/' spec/requirements.md && cat spec/modules/M6-store/tasks.md | head -20 && git log -1 --stat 3dd8f37 | head -30
+  [result]:
+    243:### 9.1 `actiontrack ingest <folder>`
+    247:- Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+    271:| `--flag NAME` | e.g. `ambiguous_owner`, `orphaned` |
+    515:| REQ-GEN-02 | Bad input never crashes the tool: skip, report, continue | §2, §12 |
+    557:| REQ-INGEST-01 | Recursive `*.md` scan, `--no-recursive` | §9.1 |
+    558:| REQ-INGEST-02 | Unchanged files (same sha256) are skipped | §9.1, D12 |
+    559:| REQ-INGEST-03 | A changed file has its sources replaced | §9.1 |
+    560:| REQ-INGEST-04 | Items that lose all their sources are flagged `orphaned`, never deleted | §9.1 |
+    561:| REQ-INGEST-05 | A CLI-set `done` is never reset by ingest | §9.1, D12 |
+    562:| REQ-INGEST-06 | One transaction per file. A failure in one file doesn't affect the others | §9.1, §12 |
+    563:| REQ-INGEST-07 | Ingest report: text on stdout plus `--report-json` | §9.1 |
+    564:| REQ-INGEST-08 | Ingest exits 0 when files are skipped, 1 on fatal errors | §9.1 |
+    565:| REQ-INGEST-09 | Progress bar on stderr, TTY only | §13.4 |
+    ### 9.1 `actiontrack ingest <folder>`
+    - Recursively finds `*.md` files (non-recursive with `--no-recursive`).
+    - For each file, if the `sha256` is unchanged since the last ingest it is skipped (D12). Otherwise the file is parsed, and its old
+      `item_sources` rows are removed and re-inserted.
+    - Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+    - Never resets `status='done'` where `done_source='cli'`.
+    - All writes for one run happen in a single transaction per file, so a failure on one file does not corrupt the others.
+    - **Ingest report** (stdout, plus `--report-json PATH`):
+      ```
+      Scanned 34 files: 29 ingested, 2 unchanged, 3 skipped
+      Items: 112 found → 87 unique (19 exact merges, 6 fuzzy merges)
+      Flags: 5 unassigned, 2 ambiguous_owner, 4 no_due, 1 unparsed_due
+      Skipped:
+        notes/2026-10-03-standup.md   missing meeting date
+        notes/broken.md                invalid YAML frontmatter (line 4)
+        notes/retro-old.md             not valid UTF-8
+      Line warnings:
+        notes/2026-11-02-sync.md:41    malformed checkbox "-[ ] Rahul ..."
+      ```
+    - Exit code `0` even when some notes are skipped. `1` only on fatal errors (folder missing, DB not writable).
+    
+    ### 9.2 `actiontrack list`
+    # M6 — Tasks
+    
+    Branch: `feat/m6-store`
+    
+    - [x] **T6.1 Write failing tests** TC-M6-01 … TC-M6-21, with builders for `ParsedItem` / `ItemGroup` in `tests/integration/conftest.py`.
+    ... [22 more lines]
+  [tool: Bash] [Search specs for existing-item norms and regroup semantics]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n -i "task_norms\|existing\|regroup\|split" spec/modules/M5-dedup/spec.md spec/modules/M6-store/spec.md spec/requirements.md | head -50
+  [result]:
+    spec/modules/M5-dedup/spec.md:6:| **Depends on** | M0 (types). Consumes `ParsedItem` (from M4) and `ExistingItem` (from M6) |
+    spec/modules/M5-dedup/spec.md:27:    orphaned_ids: tuple[str, ...]          # existing ids that matched no source
+    spec/modules/M5-dedup/spec.md:31:def group_items(sources: Sequence[ParsedItem], existing: Sequence[ExistingItem], cfg: DedupConfig) -> DedupResult
+    spec/modules/M5-dedup/spec.md:49:groups = []                       # each: owner_key, canonical_norm (first member), norms set, members, existing_id?
+    spec/modules/M5-dedup/spec.md:65:**Existing items**: before the loop, each `ExistingItem` seeds an empty "shell" group with its `id`, `owner_key` and `task_norms`.
+    spec/modules/M5-dedup/spec.md:66:Shells take part in the exact and fuzzy steps (canonical = the alphabetically smallest of its `task_norms`) and keep their ID. Shells
+    spec/modules/M5-dedup/spec.md:68:get (this is how an ambiguous-owner item finds its shell, since `ExistingItem` has no candidates). A shell that gets no members (or has
+    spec/modules/M5-dedup/spec.md:69:no `task_norms`) goes into `orphaned_ids`, sorted (REQ-INGEST-04 is applied by M7/M6).
+    spec/modules/M5-dedup/spec.md:75:| `id` | The shell's existing ID if any, else `make_item_id(owner_key, canonical_norm)` (REQ-ID-01) |
+    spec/modules/M5-dedup/spec.md:79:| `status` | `done` if the existing item is done (any source), **or** any member is `checked`. Otherwise `open` |
+    spec/modules/M5-dedup/spec.md:80:| `done_source` / `done_at` | Kept from the existing item when it is done (`cli` or `note`). Else `note` with `done_at=None` if any member is checked |
+    spec/modules/M5-dedup/spec.md:92:One `MergeDecision` for every source that **joined** a group that already had a member (the first source to land in an existing-item
+    spec/modules/M6-store/spec.md:102:    def existing(self) -> list[ExistingItem]
+    spec/modules/M6-store/spec.md:103:        # task_norms = the item's task_norm ∪ normalize_task(task) of every source linked to it
+    spec/requirements.md:195:-- One row per checkbox occurrence, holding its parsed fields so that every ingest can regroup all
+    spec/requirements.md:196:-- sources (G2). item_id is reassigned on each regroup.
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The specs genuinely conflict here. Let me check how `_merge` picks the stored `task_norm` and what M6's tests pin down for `existing()`.
+
+  [tool: Bash] [Read dedup merge logic and M6 existing() tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -n 181,240p actiontrack/dedup.py && grep -n "existing()" -B3 -A15 tests/integration/store/test_repo.py | head -60 && sed -n 70,95p spec/modules/M5-dedup/spec.md
+  [result]:
+    def _identity(owner: OwnerResolution) -> str | None:
+        """Who an item belongs to for grouping. Ambiguous owners group by their candidate set."""
+        if owner.owner_key is not None:
+            return owner.owner_key
+        if owner.candidates:
+            return "?" + ",".join(sorted(owner.candidates))
+        return None
+    
+    
+    def _merge(g: _Group) -> ItemGroup:
+        first, latest = g.members[0], g.members[-1]
+        dated = [m for m in g.members if m.due.due_date is not None]
+        # Latest meeting with a resolved due wins (ties → later line); else keep an unparsed phrase.
+        candidates = dated or [m for m in g.members if m.due.due_raw is not None] or [latest]
+        due_from = max(candidates, key=lambda m: (m.meeting_date, m.line_no))
+        due_date = due_from.due.due_date
+    
+        flags: frozenset[Flag] = frozenset().union(*(m.flags & _OWNER_FLAGS for m in g.members))
+        if all(m.due.due_raw is None for m in g.members):
+            flags |= {Flag.NO_DUE}
+        if due_date is None and any(Flag.UNPARSED_DUE in m.due.flags for m in g.members):
+            flags |= {Flag.UNPARSED_DUE}
+    
+        e = g.existing
+        status: Literal["open", "done"]
+        done_source: Literal["note", "cli"] | None
+        done_at: datetime | None
+        if e is not None and e.status == "done":
+            status, done_source, done_at = "done", e.done_source, e.done_at
+        elif any(m.checked for m in g.members):
+            status, done_source, done_at = "done", "note", None
+        else:
+            status, done_source, done_at = "open", None, None
+    
+        return ItemGroup(
+            id=g.id,
+            owner_key=first.owner.owner_key,
+            owner_display=latest.owner.owner_display,
+            owner_raw=latest.owner.owner_raw,
+            task=first.task,
+    ... [60 more lines]
+  [tool: Bash] [Check debug semantics, heavy imports, and M6 spec text]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n -i "debug" spec/modules/M0-foundation/spec.md spec/requirements.md | head; grep -n "^import\|^from\|import rapidfuzz\|import dateparser" actiontrack/dedup.py actiontrack/parsing/dates.py actiontrack/parsing/note_loader.py | head -20; grep -n "CLI-08" -A3 spec/requirements.md | head; grep -n "TC-M6-15\|TC-M6-16" spec/modules/M6-store/tests.md; sed -n 95,110p spec/modules/M6-store/spec.md
+  [result]:
+    spec/modules/M0-foundation/spec.md:107:    verbosity: int                # 0 WARNING, 1 INFO, 2+ DEBUG
+    spec/modules/M0-foundation/spec.md:120:  `--no-color`, `--debug`, `--version` (eager), `-h/--help`.
+    spec/modules/M0-foundation/spec.md:121:- The callback builds an `AppContext(config, output, clock, debug)` and stores it in `ctx.obj`.
+    spec/modules/M0-foundation/spec.md:132:  - Any other `Exception` → `Error: internal error (<TypeName>). Re-run with --debug for details.`, exit 1.
+    spec/modules/M0-foundation/spec.md:133:  - `--debug` / `ACTIONTRACK_DEBUG=1` → also print the full traceback to stderr.
+    spec/requirements.md:240:Global options: `--db PATH`, `--config PATH`, `-v/--verbose` (repeatable), `-q/--quiet`, `--no-color`, `--debug`, `--version`, `-h/--help`.
+    spec/requirements.md:413:- `-q/--quiet` suppresses everything except data and errors. `-v` / `-vv` increase the log level (INFO / DEBUG), and logs go to stderr.
+    spec/requirements.md:420:- No Python traceback by default. `--debug` (or `ACTIONTRACK_DEBUG=1`) shows the full traceback.
+    spec/requirements.md:429:- `actiontrack config show` prints the effective config and where each value came from (useful for debugging).
+    spec/requirements.md:493:11. Every command's `--help` includes an example, and no user error produces a Python traceback unless `--debug` is set.
+    actiontrack/dedup.py:7:from __future__ import annotations
+    actiontrack/dedup.py:9:import hashlib
+    actiontrack/dedup.py:10:import re
+    actiontrack/dedup.py:11:import unicodedata
+    actiontrack/dedup.py:12:from collections.abc import Callable, Iterable, Sequence
+    actiontrack/dedup.py:13:from dataclasses import dataclass, field
+    actiontrack/dedup.py:14:from datetime import datetime
+    actiontrack/dedup.py:15:from typing import Literal
+    actiontrack/dedup.py:17:from actiontrack.errors import UserInputError
+    actiontrack/dedup.py:18:from actiontrack.models import (
+    actiontrack/parsing/dates.py:7:from __future__ import annotations
+    actiontrack/parsing/dates.py:9:import calendar
+    actiontrack/parsing/dates.py:10:import re
+    actiontrack/parsing/dates.py:11:from datetime import date, datetime, time, timedelta
+    actiontrack/parsing/dates.py:12:from typing import Literal, NamedTuple
+    actiontrack/parsing/dates.py:14:from actiontrack.errors import UserInputError
+    actiontrack/parsing/dates.py:15:from actiontrack.models import DueResolution, Flag
+    actiontrack/parsing/dates.py:147:        import dateparser  # slow import; only needed for calendar dates
+    actiontrack/parsing/note_loader.py:7:from __future__ import annotations
+    actiontrack/parsing/note_loader.py:9:import codecs
+    591:| REQ-CLI-08 | `list`/`done`/`--help` start in < 300 ms (lazy imports) | §13.7 |
+    592-| REQ-CLI-09 | Portable paths, UTF-8 output on Windows | §13.4, §13.8 |
+    593-| REQ-CLI-10 | An injectable `Clock`. `ACTIONTRACK_TODAY` override | §13.8, §14 |
+    594-| REQ-ACC-01..11 | Acceptance criteria 1–11 | §16 |
+    21:| TC-M6-15 | `apply_groups` with an orphaned id | then `query()` / `query(flag=ORPHANED)` | Hidden by default. Shown with the flag. Status unchanged | REQ-STORE-01 |
+    22:| TC-M6-16 | Orphaned item regains a source on the next `apply_groups` | — | `ORPHANED` flag removed | REQ-STORE-01 |
+    
+    class PeopleRepo:
+        def upsert_many(self, attendees: Iterable[Attendee]) -> None   # email = explicit or derived; never overwritten by None
+        def find(self, query: str) -> list[Person]               # key, email, full name, or first name (normalize_name), by key
+    ... [10 more lines]
+  [tool: Bash] [Score candidate fuzzy-duplicate task pairs]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python -c "
+    from rapidfuzz import fuzz
+    from actiontrack.dedup import normalize_task as n
+    pairs=[('send the revised quote to Acme','send revised quotes to Acme'),('send the revised quote to Acme','send the revised quote over to Acme'),('prepare the Q4 budget deck','prepare Q4 budget decks'),('send the revised quote to Acme','send the revised quotation to Acme')]
+    for a,b in pairs: print(round(fuzz.token_set_ratio(n(a),n(b)),1),a,'|',b)
+    others=['book the venue for the offsite','update the pricing sheet','prepare the demo script','plan the team lunch','review vendor contracts','order new laptops','write the retro summary','share the onboarding docs','send the newsletter','draft the hiring plan','check the projector']
+    import itertools
+    print(max((fuzz.token_set_ratio(n(a),n(b)),a,b) for a,b in itertools.combinations(others+['send the revised quote to Acme'],2)))
+    "
+  [result]:
+    98.1 send the revised quote to Acme | send revised quotes to Acme
+    100.0 send the revised quote to Acme | send the revised quote over to Acme
+    97.8 prepare the Q4 budget deck | prepare Q4 budget decks
+    89.3 send the revised quote to Acme | send the revised quotation to Acme
+    (57.142857142857146, 'review vendor contracts', 'send the revised quote to Acme')
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+"send revised quotes to Acme" scores 98.1, and unrelated tasks top out at 57, so no merges happen by accident. Writing the fixtures:
+
+  [tool: Bash] [Create ingest_basic fixtures and preview parsing]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && d=tests/fixtures/notes/ingest_basic && mkdir -p $d/archive && 
+    cat > $d/2026-11-02-kickoff.md <<'EOF'
+    ---
+    date: 2026-11-02
+    title: Project kickoff
+    attendees:
+      - Priya Shah <priya.shah@coditas.com>
+      - Rahul Mehta
+      - Anita Desai
+    ---
+    ## Action items
+    - [ ] Priya to send the revised quote to Acme by Friday
+    - [ ] Rahul to book the venue for the offsite
+    - [ ] Anita to draft the hiring plan
+    EOF
+    cat > $d/2026-11-04-sync.md <<'EOF'
+    # Weekly sync — 2026-11-04
+    Attendees: Priya Shah, Rahul Mehta
+    
+    - [ ] Rahul to book the venue for the offsite
+    - [ ] Priya to update the pricing sheet by 2026-11-10
+    - [ ] Check the projector
+    EOF
+    cat > $d/2026-11-05-no-date.md <<'EOF'
+    # Hallway chat
+    Attendees: Priya Shah, Rahul Mehta
+    
+    - [ ] Rahul to buy coffee
+    EOF
+    cat > $d/2026-11-06-bad-yaml.md <<'EOF'
+    ... [62 more lines]
+  [result]:
+    2026-11-02-kickoff.md 10 priya.shah@coditas.com 'send the revised quote to Acme' 2026-11-06 [] False
+    2026-11-02-kickoff.md 11 rahul.mehta@coditas.com 'book the venue for the offsite' None [<Flag.NO_DUE: 'no_due'>] False
+    2026-11-02-kickoff.md 12 anita.desai@coditas.com 'draft the hiring plan' None [<Flag.NO_DUE: 'no_due'>] False
+    2026-11-04-sync.md 4 rahul.mehta@coditas.com 'book the venue for the offsite' None [<Flag.NO_DUE: 'no_due'>] False
+    2026-11-04-sync.md 5 priya.shah@coditas.com 'update the pricing sheet' 2026-11-10 [] False
+    2026-11-04-sync.md 6 None 'Check the projector' None [<Flag.NO_DUE: 'no_due'>, <Flag.UNASSIGNED: 'unassigned'>] False
+    SKIP 2026-11-05-no-date.md missing_date no meeting date in frontmatter, Date: line or H1 None
+    SKIP 2026-11-06-bad-yaml.md invalid_frontmatter YAML error: expected ',' or ']', but got '<stream end>' 3
+    2026-11-09-review.md 6 priya.shah@coditas.com 'send revised quotes to Acme' 2026-11-13 [] False
+    2026-11-09-review.md 7 anita.desai@coditas.com 'share the interview panel' None [<Flag.NO_DUE: 'no_due'>] True
+    2026-11-11-planning.md 4 anita.desai@coditas.com 'review vendor contracts' None [<Flag.UNPARSED_DUE: 'unparsed_due'>] False
+    2026-11-11-planning.md 5 rahul.mehta@coditas.com 'order new laptops' 2026-11-20 [] False
+    2026-11-16-retro.md 4 priya.shah@coditas.com 'plan the team lunch' 2026-11-27 [] False
+    2026-11-16-retro.md 5 None 'renew the domain' None [<Flag.NO_DUE: 'no_due'>, <Flag.OWNER_NOT_ATTENDEE: 'owner_not_attendee'>, <Flag.UNASSIGNED: 'unassigned'>] False
+    2026-11-18-standup.md 4 anita.desai@coditas.com 'send the newsletter' 2026-11-21 [] False
+    WARN 2026-11-18-standup.md LineWarning(path=WindowsPath('tests/fixtures/notes/ingest_basic/2026-11-18-standup.md'), line_no=5, code=<WarningCode.MALFORMED_CHECKBOX: 'malformed_checkbox'>, text='-[ ] Rahul to fix the build')
+    2026-11-20-demo.md 4 priya.shah@coditas.com 'prepare the demo script' 2026-11-24 [] False
+    2026-10-28-intro.md 4 rahul.mehta@coditas.com 'share the onboarding docs' None [<Flag.NO_DUE: 'no_due'>] False
+  [tool: Bash] [Check Roster attributes and package inits]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -n 74,86p actiontrack/parsing/people.py; ls actiontrack/parsing/__init__.py && cat actiontrack/store/__init__.py actiontrack/parsing/__init__.py
+  [result]:
+    class Roster:
+        """The attendees of one note, deduplicated by key, used to resolve action-item owners."""
+    
+        def __init__(self, attendees: Sequence[Attendee], *, domain: str) -> None:
+            by_key: dict[str, Attendee] = {}
+            for a in attendees:
+                kept = by_key.get(a.key)
+                if kept is None or (kept.email is None and a.email is not None):
+                    by_key[a.key] = a
+            self.attendees: tuple[Attendee, ...] = tuple(by_key.values())
+            self._domain = domain
+    
+        def resolve(self, owner_raw: str | None) -> OwnerResolution:
+    actiontrack/parsing/__init__.py
+    """SQLite persistence: connection, migrations and repositories (M6)."""
+    """Turning meeting-note files into structured data (M1-M4)."""
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\services\__init__.py  (86 chars — content in repo)
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\services\ingest.py  (8880 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\services\__init__.py (file state is current in your context — no need to Read it back)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\services\ingest.py (file state is current in your context — no need to Read it back)
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the M6 fix — narrowing `existing()` to the item's own norm:
+
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\repo.py
+  old:     def existing(self) -> list[ExistingItem]:
+        """Every stored item, with the norms of its own task and of each source linked to it."""
+        norms: dict[str, set[str]] = defaultdict(set)
+        for item_id, task in self._conn.execute(
+            "SELECT item_id, task FROM item_sources WH
+... [truncated, 418 more chars]
+  new:     def existing(self) -> list[ExistingItem]:
+        """Every stored item, with only its own `task_norm` as norms.
+
+        The norms of fuzzy-joined sources are left out on purpose: remembering them would turn
+        every past fuzzy merge into an exact match, so `--no-fuzzy` or a higher threshol
+... [truncated, 425 more chars]
+  [tool: Bash] [Check remaining uses of imports and the M6 existing() test]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n "normalize_task\|defaultdict" actiontrack/store/repo.py && sed -n 320,342p tests/integration/store/test_repo.py
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\store\repo.py has been updated successfully.
+  [result]:
+    11:from collections import defaultdict
+    18:from actiontrack.dedup import DedupResult, normalize_task
+    309:        sources: dict[str, list[SourceRef]] = defaultdict(list)
+        assert row is not None
+        assert row.source_count == 2
+        assert row.due_date == date(2026, 12, 1)
+        assert repo.ids() == sorted([first.id, "f" * 40])
+    
+    
+    def test_apply_groups_ignores_unknown_orphan(conn: sqlite3.Connection) -> None:
+        apply(conn, orphaned=("0" * 40,))
+        assert ItemRepo(conn).ids() == []
+    
+    
+    def test_existing_collects_norms(conn: sqlite3.Connection) -> None:
+        s1 = src(PRIYA, "Send the quote", "2026-11-04", line=1, path="a.md")
+        s2 = src(PRIYA, "Send quotes!", "2026-11-18", line=1, path="b.md")
+        g = group(s1, s2)
+        stored(conn, g)
+        ItemRepo(conn).mark_done(g.id, now=NOW)
+        [e] = ItemRepo(conn).existing()
+        assert e.id == g.id
+        assert e.owner_key == PRIYA
+        assert e.task_norms == {normalize_task("Send the quote"), "send quotes"}
+        assert (e.status, e.done_source, e.done_at) == ("done", "cli", NOW)
+  [tool: Bash] [Drop unused import, update M6 test and spec]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python - <<'EOF'
+    from pathlib import Path
+    p = Path("actiontrack/store/repo.py"); s = p.read_text(encoding="utf-8")
+    s = s.replace("from actiontrack.dedup import DedupResult, normalize_task\n", "from actiontrack.dedup import DedupResult\n")
+    p.write_text(s, encoding="utf-8")
+    p = Path("tests/integration/store/test_repo.py"); s = p.read_text(encoding="utf-8")
+    s = s.replace('''def test_existing_collects_norms(conn: sqlite3.Connection) -> None:''', '''def test_existing_keeps_only_the_item_norm(conn: sqlite3.Connection) -> None:''')
+    s = s.replace('''    assert e.task_norms == {normalize_task("Send the quote"), "send quotes"}''', '''    assert e.task_norms == {normalize_task("Send the quote")}  # not the joined "send quotes"''')
+    p.write_text(s, encoding="utf-8")
+    p = Path("spec/modules/M6-store/spec.md"); s = p.read_text(encoding="utf-8")
+    old = "        # task_norms = the item's task_norm ∪ normalize_task(task) of every source linked to it\n"
+    assert old in s
+    s = s.replace(old, "        # task_norms = {the item's own task_norm} only. Fuzzy-joined source norms are not remembered, so a\n        # later run with --no-fuzzy or a higher threshold can split the item again (G2, M7 TC-M7-18)\n")
+    p.write_text(s, encoding="utf-8")
+    EOF
+    git diff --stat
+  [result]:
+     actiontrack/store/repo.py            | 16 ++++++++--------
+     spec/modules/M6-store/spec.md        |  3 ++-
+     tests/integration/store/test_repo.py |  4 ++--
+     3 files changed, 12 insertions(+), 11 deletions(-)
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the CLI command, replacing the M0 stub:
+
+  [tool: Bash] [Wire ingest command into CLI and run lint/type checks]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python - <<'EOF'
+    from pathlib import Path
+    p = Path("actiontrack/cli.py"); s = p.read_text(encoding="utf-8")
+    
+    old_cmd = '''    @app.command()
+        def ingest(
+            folder: Annotated[Path, typer.Argument(help="Folder of meeting notes (*.md).")],
+        ) -> None:
+            """Ingest meeting notes and update the action item store.
+    
+            Extracts action items from every Markdown note in FOLDER and merges duplicates.
+    
+            Unchanged files are skipped, so re-running is safe.
+    
+            \\b
+            Examples:
+              actiontrack ingest ./notes
+              actiontrack ingest ./notes --no-recursive
+            """
+            raise FatalError("not implemented")
+    '''
+    new_cmd = '''    @app.command()
+        def ingest(
+            ctx: typer.Context,
+            folder: Annotated[Path, typer.Argument(help="Folder of meeting notes (*.md).")],
+            recursive: Annotated[
+                bool,
+                typer.Option("--recursive/--no-recursive", help="Also read notes in sub-folders."),
+            ] = True,
+            no_fuzzy: Annotated[
+    ... [90 more lines]
+  [result]:
+    Traceback (most recent call last):
+      File "<stdin>", line 64, in <module>
+    AssertionError
+    All checks passed!
+    1 file reformatted, 18 files left unchanged
+    Success: no issues found in 19 source files
+    [This command modified 1 file you've previously read: actiontrack\services\ingest.py. Call Read before editing.]
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The script aborted before changing `cli.py` (ruff just reformatted the service file). Checking why the match failed:
+
+  [tool: Bash] [Inspect cli.py line endings and escape chars]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && file actiontrack/cli.py; grep -n 'Examples' actiontrack/cli.py | head -2; sed -n 100,104p actiontrack/cli.py | od -c | head -12
+  [result]:
+    actiontrack/cli.py: Python script, Unicode text, UTF-8 text executable, with CRLF line terminators
+    112:        Examples:
+    125:        Examples:
+    0000000  \n                   @   a   p   p   .   c   o   m   m   a   n
+    0000020   d   (   )  \n                   d   e   f       i   n   g   e
+    0000040   s   t   (  \n                                   f   o   l   d
+    0000060   e   r   :       A   n   n   o   t   a   t   e   d   [   P   a
+    0000100   t   h   ,       t   y   p   e   r   .   A   r   g   u   m   e
+    0000120   n   t   (   h   e   l   p   =   "   F   o   l   d   e   r    
+    0000140   o   f       m   e   e   t   i   n   g       n   o   t   e   s
+    0000160       (   *   .   m   d   )   .   "   )   ]   ,  \n            
+    0000200       )       -   >       N   o   n   e   :  \n
+    0000214
+  [tool: Bash] [Check git line-ending config and file EOLs]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git config core.autocrlf; git ls-files --eol actiontrack/cli.py actiontrack/store/repo.py tests/integration/store/test_repo.py spec/modules/M6-store/spec.md actiontrack/dedup.py; sed -n 108,118p actiontrack/cli.py | cat -A | head -12
+  [result]:
+    true
+    i/lf    w/crlf  attr/                 	actiontrack/cli.py
+    i/lf    w/crlf  attr/                 	actiontrack/dedup.py
+    i/lf    w/crlf  attr/                 	actiontrack/store/repo.py
+    i/lf    w/crlf  attr/                 	spec/modules/M6-store/spec.md
+    i/lf    w/crlf  attr/                 	tests/integration/store/test_repo.py
+    $
+            Unchanged files are skipped, so re-running is safe.$
+    $
+            \b$
+            Examples:$
+              actiontrack ingest ./notes$
+              actiontrack ingest ./notes --no-recursive$
+            """$
+            raise FatalError("not implemented")$
+    $
+        @app.command("list")$
+  [tool: Bash] [Print exact ingest stub source for matching]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python - <<'EOF'
+    from pathlib import Path
+    s = Path("actiontrack/cli.py").read_text(encoding="utf-8")
+    i = s.index("    def ingest(")
+    print(repr(s[i-25:i+700]))
+    EOF
+  [result]:
+    'ack)\n\n    @app.command()\n    def ingest(\n        folder: Annotated[Path, typer.Argument(help="Folder of meeting notes (*.md).")],\n    ) -> None:\n        """Ingest meeting notes and update the action item store.\n\n        Extracts action items from every Markdown note in FOLDER and merges duplicates.\n\n        Unchanged files are skipped, so re-running is safe.\n\n        \\b\n        Examples:\n          actiontrack ingest ./notes\n          actiontrack ingest ./notes --no-recursive\n        """\n        raise FatalError("not implemented")\n\n    @app.command("list")\n    def list_items() -> None:\n        """List action items.\n\n        By default shows open items sorted by due date, then owner.\n\n        \\b\n        Examples:\n    '
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The heredoc was mangling the match, so I'll switch to the Edit tool for `cli.py`.
+
+  [tool: Read] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  [result]:
+    1	"""Typer app: argument parsing, output formatting and exception → exit-code mapping only.
+    2	
+    3	Heavy dependencies (dateparser, rapidfuzz, mcp, jinja2) must only be imported inside command
+    4	functions, never at module level here or in anything imported from here (REQ-CLI-08).
+    5	"""
+    6	
+    7	from __future__ import annotations
+    8	
+    9	import json
+    10	import os
+    11	import sys
+    12	import traceback
+    13	from collections.abc import Mapping, Sequence
+    14	from dataclasses import dataclass
+    15	from pathlib import Path
+    16	from typing import Annotated, Any
+    17	
+    18	import typer
+    19	from rich.table import Table
+    20	
+    21	# Typer vendors Click; its ClickException (usage errors, bad parameters) is not re-exported.
+    22	from typer._click.exceptions import ClickException
+    23	
+    24	from actiontrack import __version__
+    25	from actiontrack.clock import Clock, clock_from_env
+    26	from actiontrack.config import Config, load_config, settings_view
+    27	from actiontrack.console import Output, configure_stdio_utf8, make_output
+    28	from actiontrack.errors import ActionTrackError, ExitCode, FatalError
+    29	from actiontrack.models import JSON_SCHEMA_VERSION, to_jsonable
+    30	
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old: import json
+import os
+import sys
+import traceback
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
+... [1 more lines]
+  new: import json
+import logging
+import os
+import sys
+import traceback
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Any
+
+... [4 more lines]
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old: from actiontrack.errors import ActionTrackError, ExitCode, FatalError
+  new: from actiontrack.errors import ActionTrackError, ExitCode, FatalError, UserInputError
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old:     def ingest(
+        folder: Annotated[Path, typer.Argument(help="Folder of meeting notes (*.md).")],
+    ) -> None:
+        """Ingest meeting notes and update the action item store.
+
+        Extracts action items from every Markdown note in FOLDER and merges duplicates.
+
+        Unchanged files 
+... [truncated, 210 more chars]
+  new:     def ingest(
+        ctx: typer.Context,
+        folder: Annotated[Path, typer.Argument(help="Folder of meeting notes (*.md).")],
+        recursive: Annotated[
+            bool,
+            typer.Option("--recursive/--no-recursive", help="Also read notes in sub-folders."),
+        ] = True,
+     
+... [truncated, 1173 more chars]
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old: app = create_app()
+  new: def _ingest(
+    app_ctx: AppContext,
+    folder: Path,
+    *,
+    recursive: bool,
+    fuzzy_enabled: bool | None,
+    report_json: Path | None,
+) -> None:
+    from actiontrack.dedup import shortest_unique_prefixes
+    from actiontrack.services.ingest import LOGGER_NAME, check_folder, format_report
+... [1 more lines]
+  [tool: Bash] [Lint, typecheck, check lazy imports, smoke-run ingest]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/ruff check actiontrack && .venv/Scripts/ruff format actiontrack && .venv/Scripts/mypy --strict actiontrack && .venv/Scripts/python -X importtime -c "import actiontrack.cli" 2>&1 | grep -i "dateparser\|rapidfuzz\|ingest" ; echo "---"; d=$(mktemp -d) && cp -r tests/fixtures/notes/ingest_basic $d/notes && cd $d && /c/Users/Coditas-Admin/Desktop/actionTracker/.venv/Scripts/python -m actiontrack --db db.sqlite -v ingest notes --report-json r.json; echo "exit=$?"; /c/Users/Coditas-Admin/Desktop/actionTracker/.venv/Scripts/python -m actiontrack --db db.sqlite ingest notes --no-fuzzy; echo "exit=$?"; head -c 400 r.json
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+  [result]:
+    All checks passed!
+    19 files left unchanged
+    Success: no issues found in 19 source files
+    ---
+    Scanned 10 files: 8 ingested, 0 unchanged, 2 skipped, 0 removed
+    Items: 15 sources → 13 unique (1 exact merges, 1 fuzzy merges)
+    Flags: 2 unassigned, 1 owner_not_attendee, 6 no_due, 1 unparsed_due
+    Skipped:
+      notes/2026-11-05-no-date.md      missing_date: no meeting date in frontmatter, Date: line or H1
+      notes/2026-11-06-bad-yaml.md:3   invalid_frontmatter: YAML error: expected ',' or ']', but got '<stream end>'
+    Line warnings:
+      notes/2026-11-18-standup.md:5   malformed_checkbox: "-[ ] Rahul to fix the build"
+    Merges:
+      23f3c8 ← notes/2026-11-04-sync.md:4  exact 100.0  "book venue for offsite"
+      a8dc95 ← notes/2026-11-09-review.md:6  fuzzy 98.1  "send revised quote to acme"
+    exit=0
+    Scanned 10 files: 0 ingested, 8 unchanged, 2 skipped, 0 removed
+    Items: 15 sources → 14 unique (1 exact merges, 0 fuzzy merges)
+    Flags: 2 unassigned, 1 owner_not_attendee, 6 no_due, 1 unparsed_due
+    Skipped:
+      notes/2026-11-05-no-date.md    missing_date: no meeting date in frontmatter, Date: line or H1
+      notes/2026-11-06-bad-yaml.md   invalid_frontmatter: YAML error: expected ',' or ']', but got '<stream end>'
+    exit=0
+    {
+      "schema_version": 1,
+      "scanned": 10,
+      "ingested": 8,
+      "unchanged": 0,
+      "removed": 0,
+      "skipped": [
+        {
+          "path": "C:/Users/Coditas-Admin/AppData/Local/Temp/tmp.kZ6Luy7ANX/notes/2026-11-05-no-date.md",
+          "reason": "missing_date",
+          "detail": "no meeting date in frontmatter, Date: line or H1",
+          "line_no": null
+        },
+        {
+          "path": "C:/Users/Coditas-Adm
+    Shell cwd was reset to c:\Users\Coditas-Admin\Desktop\actionTracker
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_ingest.py  (14110 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_ingest.py (file state is current in your context — no need to Read it back)
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the CLI tests, including TC-M7-19 (Ctrl-C mid-transaction on file 3):
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py  (6445 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py (file state is current in your context — no need to Read it back)
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I left a placeholder in the CLI TC-M7-18 test — replacing it with the real assertion:
+
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py
+  old: def test_TC_M7_18_no_fuzzy_splits(workdir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["ingest", "notes"]) == 0
+    assert run(["ingest", "notes", "--no-fuzzy"]) == 0
+    second = capsys.readouterr().out.splitlines()[-1 - second_index(capsys)]
+    assert second  # placeholder,
+... [truncated, 92 more chars]
+  new: def test_TC_M7_18_no_fuzzy_splits(workdir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["-q", "ingest", "notes"]) == 0
+    assert run(["-q", "ingest", "notes", "--no-fuzzy"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "Scanned 10 files: 8 ingested, 0 unch
+... [truncated, 259 more chars]
+  [tool: Bash] [Drop ingest from stub test, lint, run M7 tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/unit/core/test_cli.py"); s = p.read_text(encoding="utf-8")
+    old = '"args", [["ingest", "notes"], ["list"], ["done", "a3f"], ["followup", "priya"]]'
+    assert old in s
+    s = s.replace(old, '"args", [["list"], ["done", "a3f"], ["followup", "priya"]]')
+    p.write_text(s, encoding="utf-8")
+    EOF
+    .venv/Scripts/ruff format tests && .venv/Scripts/ruff check tests && .venv/Scripts/python -m pytest -q tests/integration/test_ingest.py tests/integration/test_cli_ingest.py tests/unit/core/test_cli.py tests/integration/store 2>&1 | tail -30
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py has been updated successfully. (file state is current in your context — no need to Read it back)
+  [result]:
+    Exit code 1
+    2 files reformatted, 47 files left unchanged
+    RUF002 Docstring contains ambiguous `–` (EN DASH). Did you mean `-` (HYPHEN-MINUS)?
+       --> tests\integration\test_cli_ingest.py:135:68
+        |
+    133 |     workdir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    134 | ) -> None:
+    135 |     """Ctrl-C after file 3's note and sources were written: files 1–2 stay, file 3 has no rows."""
+        |                                                                    ^
+    136 |     calls: list[int] = []
+    137 |     real = ingest_module.PeopleRepo.upsert_many
+        |
+    
+    Found 1 error.
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py
+  old: files 1–2 stay
+  new: files 1 and 2 stay
+  [tool: Bash] [Lint tests and run M7-related tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/ruff check tests && .venv/Scripts/python -m pytest -q tests/integration/test_ingest.py tests/integration/test_cli_ingest.py tests/unit/core/test_cli.py tests/integration/store 2>&1 | tail -30
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py has been updated successfully. (file state is current in your context — no need to Read it back)
+  [result]:
+    Exit code 1
+    E501 Line too long (102 > 100)
+       --> tests\integration\test_cli_ingest.py:135:101
+        |
+    133 |     workdir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    134 | ) -> None:
+    135 |     """Ctrl-C after file 3's note and sources were written: files 1 and 2 stay, file 3 has no rows."""
+        |                                                                                                     ^^
+    136 |     calls: list[int] = []
+    137 |     real = ingest_module.PeopleRepo.upsert_many
+        |
+    
+    Found 1 error.
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py
+  old:     """Ctrl-C after file 3's note and sources were written: files 1 and 2 stay, file 3 has no rows."""
+  new:     """Ctrl-C after file 3's note and sources were written: files 1, 2 stay; file 3 has no rows."""
+  [tool: Bash] [Lint tests and run M7-related tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/ruff check tests && .venv/Scripts/python -m pytest -q tests/integration/test_ingest.py tests/integration/test_cli_ingest.py tests/unit/core/test_cli.py tests/integration/store 2>&1 | tail -30
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py has been updated successfully. (file state is current in your context — no need to Read it back)
+  [result]:
+    All checks passed!
+            def interrupt_third(self: ingest_module.PeopleRepo, attendees: object) -> None:
+                calls.append(1)
+                if len(calls) == 3:
+                    raise KeyboardInterrupt
+                real(self, attendees)  # type: ignore[arg-type]
+        
+            monkeypatch.setattr(ingest_module.PeopleRepo, "upsert_many", interrupt_third)
+            assert run(["ingest", "notes"]) == 130
+            assert "Interrupted" in capsys.readouterr().err
+        
+            conn = connect(workdir / "db.sqlite")
+            try:
+                stored = {p.name: NoteRepo(conn).get(p) for p in NoteRepo(conn).paths_under(workdir)}
+                with_sources = {s.note_path.name for s in SourceRepo(conn).all()}
+            finally:
+                conn.close()
+            # Scan order: archive/2026-10-28-intro.md, 2026-11-02-kickoff.md, 2026-11-04-sync.md, ...
+    >       assert {"2026-10-28-intro.md", "2026-11-02-kickoff.md"} <= with_sources
+    E       AssertionError: assert {'2026-10-28-...2-kickoff.md'} <= {'2026-11-02-...1-04-sync.md'}
+    E         
+    E         Extra items in the left set:
+    E         '2026-10-28-intro.md'
+    
+    C:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_ingest.py:156: AssertionError
+    =========================== short test summary info ===========================
+    FAILED tests/integration/test_ingest.py::test_scan_sorts_by_posix_path_and_resolves
+    FAILED tests/integration/test_ingest.py::test_TC_M7_18_regroup_applies_no_fuzzy
+    FAILED tests/integration/test_ingest.py::test_format_report_quiet_and_verbose
+    FAILED tests/integration/test_cli_ingest.py::test_TC_M7_19_interrupt_rolls_back_current_file
+    4 failed, 97 passed, 1 skipped in 10.24s
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Two failures are my test assumptions about POSIX sort order (`.` sorts before `/`, and `2026-…` before `archive/`); the implementation follows the spec. Let me see the other two:
+
+  [tool: Bash] [Show assertion errors for two failing tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python -m pytest -q tests/integration/test_ingest.py -k "TC_M7_18 or quiet_and_verbose" 2>&1 | grep -E "^E |Error" | head -20
+  [result]:
+    E       assert (14, 0) == (13, 1)
+    E         
+    E         At index 0 diff: 14 != 13
+    E         Use -v to get more diff
+    tests\integration\test_ingest.py:314: AssertionError
+    E       ValueError: too many values to unpack (expected 1)
+    tests\integration\test_ingest.py:340: ValueError
+  [tool: Bash] [Fix test expectations and run full suite]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/integration/test_ingest.py"); s = p.read_text(encoding="utf-8")
+    reps = [
+    ('''    again = ingest(notes, conn, cfg)  # back to the config default: they merge again
+        assert (again.items_total, again.fuzzy_merges) == (13, 1)
+    ''', '''    # Fuzzy on again: both are existing items now, and two existing items are never merged
+        # (that would drop an ID the user may already be using), so they stay apart.
+        again = ingest(notes, conn, cfg)
+        assert (again.items_total, again.fuzzy_merges) == (14, 0)
+    '''),
+    ('''    [fuzzy] = [line for line in lines if " fuzzy " in line]
+        assert fuzzy.endswith''', '''    [fuzzy] = [line for line in lines if "← " in line and " fuzzy " in line]
+        assert fuzzy.endswith'''),
+    ('''        "a/z.md",
+            "a.md",
+            "b.md",''', '''        "a.md",  # "." sorts before "/"
+            "a/z.md",
+            "b.md",'''),
+    ]
+    for a, b in reps:
+        assert a in s, a
+        s = s.replace(a, b)
+    p.write_text(s, encoding="utf-8")
+    p = Path("tests/integration/test_cli_ingest.py"); s = p.read_text(encoding="utf-8")
+    a = '''    # Scan order: archive/2026-10-28-intro.md, 2026-11-02-kickoff.md, 2026-11-04-sync.md, ...
+        assert {"2026-10-28-intro.md", "2026-11-02-kickoff.md"} <= with_sources
+        assert "2026-11-04-sync.md" not in stored
+        assert "2026-11-04-sync.md" not in with_sources
+    '''
+    ... [10 more lines]
+  [result]:
+    ........................................................................ [ 64%]
+    ........................................................................ [ 80%]
+    ........................................................................ [ 96%]
+    ................                                                         [100%]
+    447 passed, 1 skipped, 1 deselected in 17.79s
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All 447 pass. Now the quality gate (T7.9):
+
+  [tool: Bash] [Run ruff, mypy, and coverage report]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/ruff check . && .venv/Scripts/ruff format --check . && .venv/Scripts/mypy --strict actiontrack && .venv/Scripts/python -m pytest -q --cov=actiontrack --cov-report=term-missing 2>&1 | grep -E "ingest|cli|repo|TOTAL"
+  [result]:
+    All checks passed!
+    69 files already formatted
+    Success: no issues found in 19 source files
+    actiontrack\cli.py                     155      4    97%   79, 261, 348-349
+    actiontrack\services\ingest.py         136      2    99%   226-227
+    actiontrack\store\repo.py              202      0   100%
+    TOTAL                                 1620     18    99%
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+99% on the service, 97% on the CLI. The one meaningful gap is the `--debug` per-file traceback (cli.py:261), so I'll add a test for it:
+
+  [tool: Bash] [Add --debug traceback test and run CLI tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && cat >> tests/integration/test_cli_ingest.py <<'EOF'
+    
+    
+    def test_debug_logs_traceback_of_skipped_file(
+        workdir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("boom")
+    
+        monkeypatch.setattr(ingest_module, "extract_items", boom)
+        logger = logging.getLogger(ingest_module.LOGGER_NAME)
+        try:
+            assert run(["--debug", "ingest", "notes"]) == 0
+        finally:
+            logger.setLevel(logging.NOTSET)
+        captured = capsys.readouterr()
+        assert "Traceback" in captured.err
+        assert "internal_error: RuntimeError: boom" in captured.out
+    EOF
+    sed -i 's/^import json$/import json\nimport logging/' tests/integration/test_cli_ingest.py && .venv/Scripts/ruff check tests && .venv/Scripts/ruff format --check tests && .venv/Scripts/python -m pytest -q tests/integration/test_cli_ingest.py 2>&1 | tail -2
+  [result]:
+    All checks passed!
+    49 files already formatted
+    ...........                                                              [100%]
+    11 passed in 3.07s
+    [This command modified 1 file you've previously read: tests\integration\test_cli_ingest.py. Call Read before editing.]
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Gate is green. Now the spec updates: the M7 spec has to match what was built (plan DoD: "no public interface differs from the spec"). Then I'll tick the tasks and update the status board.
+
+  [tool: Read] C:\Users\Coditas-Admin\Desktop\actionTracker\spec\modules\M7-ingest\spec.md
+  [result]:
+    1	# M7 — `ingest` Command
+    2	
+    3	| | |
+    4	|---|---|
+    5	| **Status** | Draft |
+    6	| **Depends on** | M1, M2, M3 (via M4), M4, M5, M6 |
+    7	| **Files** | `actiontrack/services/ingest.py`, the `ingest` command in `actiontrack/cli.py` |
+    8	| **REQ IDs** | REQ-INGEST-01 … 09, REQ-GEN-02 |
+    9	
+    10	## 1. Purpose
+    11	Orchestrate notes → DB: scan the folder, load and parse changed notes, persist the sources, regroup all items, and produce the
+    12	ingest report. Bad input never stops the run.
+    13	
+    14	## 2. Interface
+    15	
+    16	```python
+    17	class ProgressSink(Protocol):
+    18	    def start(self, total: int) -> None: ...
+    19	    def advance(self, path: Path) -> None: ...
+    20	    def finish(self) -> None: ...
+    21	
+    22	def run_ingest(folder: Path, *, recursive: bool, conn: sqlite3.Connection, cfg: Config, clock: Clock,
+    23	               fuzzy_enabled: bool | None = None, progress: ProgressSink | None = None) -> IngestReport
+    24	```
+    25	
+    26	CLI: `actiontrack ingest <folder> [--no-recursive] [--no-fuzzy] [--report-json PATH]`
+    27	
+    28	## 3. Algorithm
+    29	
+    30	1. **Validate**: if `folder` doesn't exist or isn't a directory → `FatalError` (exit 1) (REQ-INGEST-08).
+    31	2. **Scan** (REQ-INGEST-01): `rglob("*")` (or `glob` with `--no-recursive`), keeping files whose suffix is `.md` (case-insensitive).
+    32	   Hidden directories (`.git`, `.obsidian`, …) are skipped. Sorted by POSIX path. Paths are stored **resolved absolute**.
+    33	3. **Per file**, each wrapped in `try/except Exception` (REQ-GEN-02, REQ-INGEST-06):
+    34	   1. Compute sha256. If `NoteRepo.get(path)` has the same hash: status `ok` → `unchanged += 1`; status `skipped` → the
+    35	      stored reason is re-reported in `skipped` (the user still sees it every run). Either way, continue (REQ-INGEST-02).
+    36	   2. `load_note` (M1). A `SkipRecord` → `NoteRepo.upsert_skipped` (removes any old sources), add it to `skipped`.
+    37	   3. Else `build_roster` (M2) → `extract_items` (M4) → in **one transaction**: `NoteRepo.upsert_ok`, `SourceRepo.replace_for_note`
+    38	      (REQ-INGEST-03), `PeopleRepo.upsert_many`. Warnings collected. `ingested += 1`.
+    39	   4. An unexpected exception → roll back that file's transaction, add `SkipRecord(INTERNAL_ERROR, detail="<Type>: <msg>")`,
+    40	      continue. With `--debug` the traceback is logged.
+    ... [28 more lines]
+  [tool: Bash] [Update M7 spec, tick tasks, update status board]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python - <<'EOF'
+    from pathlib import Path
+    p = Path("spec/modules/M7-ingest/spec.md"); s = p.read_text(encoding="utf-8")
+    reps = [
+    ("""def run_ingest(folder: Path, *, recursive: bool, conn: sqlite3.Connection, cfg: Config, clock: Clock,
+                   fuzzy_enabled: bool | None = None, progress: ProgressSink | None = None) -> IngestReport
+    ```
+    """, """def run_ingest(folder: Path, *, recursive: bool, conn: sqlite3.Connection, cfg: Config, clock: Clock,
+                   fuzzy_enabled: bool | None = None, progress: ProgressSink | None = None) -> IngestReport
+    
+    def check_folder(folder: Path) -> None                       # FatalError unless an existing directory
+    def scan(root: Path, *, recursive: bool) -> list[Path]       # step 2; `root` already resolved
+    def format_report(report: IngestReport, *, quiet: bool = False, verbose: bool = False,
+                      short_ids: Mapping[str, str] | None = None, cwd: Path | None = None) -> list[str]   # §4 text
+    
+    LOGGER_NAME = "actiontrack.ingest"                           # per-file tracebacks are logged here at DEBUG
+    ```
+    
+    `fuzzy_enabled=None` means "use `cfg.fuzzy_enabled`". The CLI calls `check_folder` before opening the DB (so a mistyped folder
+    doesn't create a database), and computes `short_ids` with M5's `shortest_unique_prefixes` over `ItemRepo.ids()`.
+    """),
+    ("""   Hidden directories (`.git`, `.obsidian`, …) are skipped. Sorted by POSIX path. Paths are stored **resolved absolute**.""",
+     """   Hidden directories (`.git`, `.obsidian`, …) below the root are skipped (hidden *files* are kept). Sorted by POSIX path
+       (so `a.md` comes before `a/z.md`). Paths are stored **resolved absolute**."""),
+    ("""      stored reason is re-reported in `skipped` (the user still sees it every run). Either way, continue (REQ-INGEST-02).""",
+     """      stored reason is re-reported in `skipped` (the user still sees it every run). Either way, continue (REQ-INGEST-02).
+          The `notes` table has no line number column, so a re-reported skip has `line_no = None`. A file that can't be read has
+          no hash and is always re-loaded."""),
+    ("""   4. An unexpected exception → roll back that file's transaction, add `SkipRecord(INTERNAL_ERROR, detail="<Type>: <msg>")`,
+          continue. With `--debug` the traceback is logged.""",
+    ... [16 more lines]
+  [result]:
+    7:- [x] **T7.2 Write failing tests** TC-M7-01 … TC-M7-19.
+    8:- [x] **T7.3 Scanner** (recursive flag, suffix filter, hidden dirs, sort, resolve). → TC-M7-01 … 03
+    12:| TC-M7-04 | Ingested once | Run again unchanged | `unchanged == 8`, `ingested == 0`, `skipped == 2` (re-reported from the stored reason), DB items byte-identical (dump compare) | REQ-INGEST-02 |
+     M actiontrack/cli.py
+     M actiontrack/store/repo.py
+     M spec/modules/M6-store/spec.md
+     M spec/modules/M7-ingest/spec.md
+     M spec/modules/M7-ingest/tasks.md
+     M spec/plan.md
+     M tests/integration/store/test_repo.py
+     M tests/unit/core/test_cli.py
+    ?? actiontrack/services/
+    ?? tests/fixtures/notes/ingest_basic/
+    ?? tests/integration/test_cli_ingest.py
+    ?? tests/integration/test_ingest.py
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Specs are updated. Running the plan's traceability check and the full gate one last time before committing:
+
+  [tool: Bash] [Run traceability checks and full quality gate]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && for r in $(grep -o 'REQ-INGEST-0[1-9]\|REQ-GEN-02' spec/modules/M7-ingest/spec.md | sort -u); do grep -q "$r" spec/modules/M7-ingest/tests.md && echo "ok $r" || echo "MISSING $r"; done | tr '\n' ' '; echo; for n in $(seq -w 1 19); do grep -q "TC_M7_$n" tests/integration/test_ingest.py tests/integration/test_cli_ingest.py || echo "no test TC_M7_$n"; done; .venv/Scripts/ruff check . && .venv/Scripts/ruff format --check . && .venv/Scripts/mypy --strict actiontrack && .venv/Scripts/python -m pytest -q --cov=actiontrack 2>&1 | tail -2
+  [result]:
+    ok REQ-GEN-02 ok REQ-INGEST-01 ok REQ-INGEST-02 ok REQ-INGEST-03 ok REQ-INGEST-04 ok REQ-INGEST-05 ok REQ-INGEST-06 ok REQ-INGEST-07 ok REQ-INGEST-08 ok REQ-INGEST-09 
+    All checks passed!
+    69 files already formatted
+    Success: no issues found in 19 source files
+    TOTAL                                 1620     17    99%
+    448 passed, 1 skipped, 1 deselected in 37.57s
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All 10 REQ IDs are traced, every TC-M7-01…19 has a test, and the gate is clean. Committing and opening the PR, following the pattern of earlier modules:
+
+  [tool: Bash] [Commit M7, push branch, open pull request]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git add -A && git commit -q -F - <<'EOF'
+    M7: ingest command (scan, per-file pipeline, deleted files, regroup, report)
+    
+    - services/ingest.py: run_ingest (folder check, scan of *.md any case skipping hidden dirs,
+      sorted by POSIX path, resolved paths), per-file pipeline with sha256 skip and re-reported
+      stored skip reasons, one transaction per file inside an exception boundary (internal_error
+      skip, nothing stored, traceback at DEBUG), deleted files under the root removed (G4; direct
+      children only with --no-recursive) in the same transaction as the regroup, which always
+      runs over all sources. format_report renders the §9.1 text with -q / -v (merges) variants.
+    - cli.py: `ingest` replaces the M0 stub: --no-recursive, --no-fuzzy, --report-json, rich
+      progress bar on stderr only on a TTY and without -q, --debug enables per-file tracebacks.
+    - store/repo.py: ItemRepo.existing() now gives each item only its own task_norm. Remembering
+      fuzzy-joined source norms made every past fuzzy merge an exact match, so --no-fuzzy could
+      never split it (TC-M7-18, G2). M6 spec and test updated.
+    - Fixture folder tests/fixtures/notes/ingest_basic (exact and fuzzy duplicate pairs, two
+      malformed notes, a malformed checkbox, a nested note, a .txt).
+    - Tests TC-M7-01..19 plus edge cases in tests/integration/test_ingest.py and
+      test_cli_ingest.py; TC-M0-27 no longer lists ingest as a stub.
+    - Spec updated with the above; tasks ticked; status board updated.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git push -q -u origin feat/m7-ingest 2>&1 | tail -2; gh pr create --base main --head feat/m7-ingest --title "M7: ingest command" --body-file - <<'EOF'
+    Implements [M7 — `ingest` command](spec/modules/M7-ingest/spec.md): notes folder → stored sources → regrouped items → ingest report.
+    
+    ## What's in it
+    - **`actiontrack/services/ingest.py`**: `run_ingest`, `scan`, `check_folder` and `format_report`.
+      - The scan finds `*.md` files (any case case), skips hidden folders, and sorts by POSIX path.
+      - Each file is hashed and skipped if unchanged. A skipped note is reported again on every run.
+      - Each file gets its own transaction and exception boundary: an unexpected error becomes an `internal_error` skip and the other files carry on.
+    ... [19 more lines]
+  [result]:
+    Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Destructive or Unwanted Actions]. If you have other tasks that don't depend on this action, continue working on those. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. If you believe this capability is essential to complete the user's request, first try a safer method. Get as much of the rest of the task done as you can, then STOP and explain to the user what you were trying to do and why you need this permission. Let the user decide how to proceed. To allow this type of action in the future, the user can add a permission rule for Bash to their settings.
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Committing, pushing and opening the PR was blocked: you didn't explicitly ask for them, so I'll leave them to you rather than retry. Confirming nothing was committed:
+
+  [tool: Bash] [Confirm working tree state after denial]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git status --short && git log --oneline -1
+  [result]:
+     M actiontrack/cli.py
+     M actiontrack/store/repo.py
+     M spec/modules/M6-store/spec.md
+     M spec/modules/M7-ingest/spec.md
+     M spec/modules/M7-ingest/tasks.md
+     M spec/plan.md
+     M tests/integration/store/test_repo.py
+     M tests/unit/core/test_cli.py
+    ?? actiontrack/services/
+    ?? tests/fixtures/notes/ingest_basic/
+    ?? tests/integration/test_cli_ingest.py
+    ?? tests/integration/test_ingest.py
+    7b58e7a Merge pull request #6 from mohit-gupta-coditas/feat/m6-store
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The `ingest` command (M7) is built and tests pass, but nothing is committed. The step that commits, pushes `feat/m7-ingest` and opens the PR was blocked because you hadn't asked for it. Everything is uncommitted on the `feat/m7-ingest` branch, which I created from an up-to-date `main`.
+
+**Checks:** all 448 tests pass, including TC-M7-01 to 19. `ruff` and `mypy --strict` are clean. Coverage is 99% for the new service, 97% for the CLI and 100% for the store code.
+
+**What it does:**
+- **Command:** `actiontrack ingest <folder>` with `--no-recursive`, `--no-fuzzy` and `--report-json PATH`. It shows a progress bar only on a terminal and without `-q`.
+- **Re-runs:** unchanged notes are skipped. Each note is saved in its own transaction, so one broken note is reported and the others still go in. Ctrl-C exits with code 130, keeps the notes already finished, and saves nothing of the note in progress.
+- **Report:** prints the text report from the spec; `-q` shows only the two summary lines and `-v` adds a list of merges.
+- **Deleted notes:** notes removed from the folder are dropped and their items flagged `orphaned`. Only notes under the folder being ingested are affected.
+- **Code:** the logic is in [actiontrack/services/ingest.py](actiontrack/services/ingest.py) and the command is in [actiontrack/cli.py](actiontrack/cli.py). The test notes are in [tests/fixtures/notes/ingest_basic/](tests/fixtures/notes/ingest_basic/): 15 tasks that become 13 items, with one exact and one fuzzy duplicate pair.
+
+**Decisions for you to check:**
+1. **I changed the M6 store code.** `ItemRepo.existing()` used to remember every task wording merged into an item. That made a fuzzy merge permanent, so `--no-fuzzy` could never split it, which contradicts TC-M7-18 and gap G2. It now keeps only the item's own wording, and I updated the M6 spec and test to match.
+2. **Split items don't merge back.** Once `--no-fuzzy` splits a pair, turning fuzzy matching back on leaves them as two items. Merging two existing items would drop an ID someone may already be using (for example, one marked done). This is written down in the M7 spec.
+3. **Other rules I added to the M7 spec:**
+   - With `--no-recursive`, notes in sub-folders are not treated as deleted.
+   - A note that hits an unexpected error saves nothing and is retried on the next run.
+   - When a broken note is reported again on a later run, it loses its line number, because the `notes` table has no column for it.
+4. **G4 (deleted notes) still needs your confirmation in the root spec.** I built it as proposed.
+
+To finish, tell me to go ahead and I'll commit, push and open the PR (description already drafted), then link it on the status board. Or run it yourself:
+```
+git add -A && git commit -m "M7: ingest command" && git push -u origin feat/m7-ingest && gh pr create --base main
+```
+
+
+####################################################################################################
+USER:
+use ask user question tool for any questions and give recommended options
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: AskUserQuestion] {"questions": [{"question": "The M7 ingest work is finished but uncommitted on branch feat/m7-ingest (448 tests pass, ruff/mypy clean). How should I ship it?", "header": "Ship M7", "multiSelect": false, "options": [{"label": "Commit, push, open PR (Recommended)", "description": "Commit, push feat/m7-ingest, open the PR against main, then link it on the status board in spec/plan.md like M1–M6."}, {"label": "Commit locally only", "description": "Commit on feat/m7-ingest but don't push or open a PR; you review first."}, {"label": "Leave uncommitted", "description": "Don't touch git; you'll review
+... [truncated, 1964 more chars]
+  [result]:
+    Your questions have been answered: "The M7 ingest work is finished but uncommitted on branch feat/m7-ingest (448 tests pass, ruff/mypy clean). How should I ship it?"="Commit, push, open PR (Recommended)", "To make --no-fuzzy split an earlier fuzzy merge (TC-M7-18), I changed the M6 store: ItemRepo.existing() now returns only an item's own task wording, not the wording of every task merged into it. Without this, fuzzy merges become permanent. Keep this change?"="Keep the M6 change (Recommended)", "After --no-fuzzy splits a fuzzy pair into two items, turning fuzzy matching back on leaves them as two separate items (M5 never merges two existing items). Is that the behaviour you want?"="Keep them apart (Recommended)", "Gap G4 (a note file deleted from the folder → its sources removed, its items flagged orphaned; only notes under the ingested folder are affected) is built as proposed. Should I mark G4 confirmed in the root spec and plan?"="Confirm G4 (Recommended)". You can now continue with these answers in mind.
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+You picked the recommended option on all four. I'll start with G4: first, how G1/G2 were confirmed, so I can follow the same format.
+
+  [tool: Bash] [Show how G1/G2 were confirmed in specs]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git show 55af035 | head -80
+  [result]:
+    commit 55af035bfc474543c8b6d11d2c0d81144a3c5761
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Wed Nov 25 23:46:44 2026 +0530
+    
+        M6: confirm gaps G1 and G2 in the root spec
+        
+        - requirements.md §8: schema matches M6 v1 (nullable people.email, parsed fields in item_sources
+          keyed by (note_path, line_no), nullable notes.sha256, skip_detail, owner_display, recipient).
+        - requirements.md §6: person key falls back to name:<firstname>.
+        - plan.md §5: G1 and G2 marked resolved.
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+    diff --git a/spec/modules/M6-store/spec.md b/spec/modules/M6-store/spec.md
+    index 9a462c9..4260c55 100644
+    --- a/spec/modules/M6-store/spec.md
+    +++ b/spec/modules/M6-store/spec.md
+    @@ -150,5 +150,6 @@ class NoteRow:
+     Deciding groups (M5). Deciding when to ingest (M7). Output formatting.
+     
+     ## 7. Open questions
+    -G1 and G2 need confirming in the root spec §8. This module also makes `notes.sha256` nullable (a note skipped with
+    -`READ_ERROR` has no hash, so it is retried on every ingest) and adds `notes.skip_detail` and `drafts.recipient`.
+    +None. G1 and G2 are confirmed in the root spec §8, together with the other schema changes this module makes: nullable
+    +`notes.sha256` (a note skipped with `READ_ERROR` has no hash, so it is retried on every ingest), `notes.skip_detail`,
+    +`items.owner_display` and `drafts.recipient`.
+    diff --git a/spec/plan.md b/spec/plan.md
+    index e043167..5fc6fd3 100644
+    --- a/spec/plan.md
+    +++ b/spec/plan.md
+    @@ -96,12 +96,13 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
+     ## 5. Spec gaps found while decomposing
+     
+     These came up while writing the module specs. Each has a **proposed resolution**, which the module specs already assume.
+    -Once a gap is confirmed, the root spec is updated and the gap is marked resolved here.
+    +Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
+    +(root spec §6, §8).
+     
+     | # | Gap | Proposed resolution | Affects |
+     |---|---|---|---|
+    ... [8 more lines]
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now applying the same pattern for G4 in the root spec, the plan and the M7 spec. The §9.1 report example also needs updating: it lacks the `removed` count that the M7 report prints.
+
+  [tool: Bash] [Confirm G4 in root spec, plan, and M7 spec]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python - <<'EOF'
+    from pathlib import Path
+    def patch(path, reps):
+        p = Path(path); s = p.read_text(encoding="utf-8")
+        for a, b in reps:
+            assert a in s, (path, a[:70])
+            s = s.replace(a, b)
+        p.write_text(s, encoding="utf-8")
+    
+    patch("spec/requirements.md", [
+    ("""- Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+    """,
+    """- Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+    - A note that was ingested before and is no longer in the folder is removed, together with its sources, so its items become
+      `orphaned` (G4). Only notes under the folder being ingested are affected (with `--no-recursive`, only its direct children),
+      so ingesting a different folder orphans nothing. The report counts these as `removed`.
+    """),
+    ("""  Scanned 34 files: 29 ingested, 2 unchanged, 3 skipped
+    """, """  Scanned 34 files: 29 ingested, 2 unchanged, 3 skipped, 0 removed
+    """),
+    ])
+    patch("spec/plan.md", [
+    ("""G1 and G2 were confirmed with M6
+    (root spec §6, §8).""", """G1 and G2 were confirmed with M6
+    (root spec §6, §8), and G4 with M7 (root spec §9.1)."""),
+    ("| G4 | A note file", "| G4 ✅ | A note file"),
+    ])
+    patch("spec/modules/M7-ingest/spec.md", [
+    ("""G4 (deleted files) is implemented as proposed and still needs confirming in the root spec.""",
+     """None. G4 (deleted files) is confirmed in the root spec §9.1."""),
+    ... [3 more lines]
+  [result]:
+     spec/modules/M6-store/spec.md   |  3 ++-
+     spec/modules/M7-ingest/spec.md  | 38 +++++++++++++++++++++++++++++++-------
+     spec/modules/M7-ingest/tasks.md | 18 +++++++++---------
+     spec/plan.md                    |  8 ++++----
+     spec/requirements.md            |  5 ++++-
+     5 files changed, 50 insertions(+), 22 deletions(-)
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now committing in two parts, as with M6: the implementation, then the G4 confirmation.
+
+  [tool: Bash] [Stage implementation, separating G4 plan edits]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git add -A -- . ':!spec/requirements.md' && git restore --staged spec/plan.md && git add -p spec/plan.md <<'EOF' >/dev/null
+    n
+    y
+    n
+    EOF
+    git diff --cached --stat | tail -3; git diff --cached spec/plan.md | grep '^[-+]|'
+  [result]:
+    warning: in the working copy of 'actiontrack/services/__init__.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/services/ingest.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-02-kickoff.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-04-sync.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-05-no-date.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-06-bad-yaml.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-09-review.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-11-planning.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-16-retro.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-18-standup.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/2026-11-20-demo.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/archive/2026-10-28-intro.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/fixtures/notes/ingest_basic/notes.txt', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/test_cli_ingest.py', LF will be replaced by CRLF the next time Git touches it
+     tests/integration/test_ingest.py                   | 369 +++++++++++++++++++++
+     tests/unit/core/test_cli.py                        |   4 +-
+     23 files changed, 1015 insertions(+), 34 deletions(-)
+    -| M7 | Draft | ☐ | ☐ | ☐ | — |
+    +| M7 | Draft | ☑ | ☑ | ☑ | — |
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Interactive hunk staging worked but left out the plan's "M7 done" header line. Checking what's still unstaged in `plan.md`:
+
+  [tool: Bash] [Show unstaged plan.md changes]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git diff spec/plan.md | grep '^[-+]' 
+  [result]:
+    --- a/spec/plan.md
+    +++ b/spec/plan.md
+    -| **Status** | In progress. M0, M1, M2, M3, M4, M5 and M6 done |
+    +| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6 and M7 done |
+    -(root spec §6, §8).
+    +(root spec §6, §8), and G4 with M7 (root spec §9.1).
+    -| G4 | A note file that was deleted from the folder | Its sources are removed and its items become `orphaned`. Only files under the scanned root are affected, so ingesting a different folder orphans nothing | M7 |
+    +| G4 ✅ | A note file that was deleted from the folder | Its sources are removed and its items become `orphaned`. Only files under the scanned root are affected, so ingesting a different folder orphans nothing | M7 |
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The leftover is the "M7 done" status line plus the G4 lines, so the second commit will cover both. Committing:
+
+  [tool: Bash] [Create implementation and G4 confirmation commits]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git commit -q -F - <<'EOF'
+    M7: ingest command (scan, per-file pipeline, deleted files, regroup, report)
+    
+    - services/ingest.py: run_ingest (folder check, scan of *.md any case skipping hidden dirs,
+      sorted by POSIX path, resolved paths), per-file pipeline with sha256 skip and re-reported
+      stored skip reasons, one transaction per file inside an exception boundary (internal_error
+      skip, nothing stored, traceback at DEBUG), deleted files under the root removed (G4; direct
+      children only with --no-recursive) in the same transaction as the regroup, which always
+      runs over all sources. format_report renders the §9.1 text with -q / -v (merges) variants.
+    - cli.py: `ingest` replaces the M0 stub: --no-recursive, --no-fuzzy, --report-json, rich
+      progress bar on stderr only on a TTY and without -q, --debug enables per-file tracebacks.
+    - store/repo.py: ItemRepo.existing() now gives each item only its own task_norm. Remembering
+      fuzzy-joined source norms made every past fuzzy merge an exact match, so --no-fuzzy could
+      never split it (TC-M7-18, G2). M6 spec and test updated.
+    - Fixture folder tests/fixtures/notes/ingest_basic (exact and fuzzy duplicate pairs, two
+      malformed notes, a malformed checkbox, a nested note, a .txt).
+    - Tests TC-M7-01..19 plus edge cases in tests/integration/test_ingest.py and
+      test_cli_ingest.py; TC-M0-27 no longer lists ingest as a stub.
+    - Spec updated with the above; tasks ticked; status board updated.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git add spec/plan.md spec/requirements.md && git commit -q -F - <<'EOF'
+    M7: confirm gap G4 in the root spec
+    
+    - requirements.md §9.1: a note no longer in the folder is removed with its sources and its
+      items are orphaned; only notes under the ingested folder (direct children with
+      --no-recursive) are affected. The report example gains the `removed` count.
+    - plan.md: G4 marked resolved; M7 done in the status line.
+    
+    ... [3 more lines]
+  [result]:
+    1e5ef47 M7: confirm gap G4 in the root spec
+    9dd2c90 M7: ingest command (scan, per-file pipeline, deleted files, regroup, report)
+    7b58e7a Merge pull request #6 from mohit-gupta-coditas/feat/m6-store
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Committed, and the tree is clean. Pushing and opening the PR:
+
+  [tool: Bash] [Push branch and open pull request]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && git push -q -u origin feat/m7-ingest 2>&1 | tail -2; gh pr create --base main --head feat/m7-ingest --title "M7: ingest command" --body-file - <<'EOF'
+    Implements [M7 — `ingest` command](spec/modules/M7-ingest/spec.md): notes folder → stored sources → regrouped items → ingest report.
+    
+    ## What's in it
+    - **`actiontrack/services/ingest.py`**: `run_ingest`, `scan`, `check_folder` and `format_report`.
+      - The scan finds `*.md` files in any letter case, skips hidden folders, and sorts by POSIX path.
+      - Each file is hashed and skipped if unchanged. A skipped note is reported again on every run.
+      - Each file gets its own transaction and exception boundary: an unexpected error becomes an `internal_error` skip and the other files carry on.
+      - Notes deleted from the folder are removed, but only under the scanned root (G4).
+      - The regroup always runs over all sources.
+    - **`actiontrack/cli.py`**: `ingest <folder> [--no-recursive] [--no-fuzzy] [--report-json PATH]` replaces the M0 stub.
+      - Progress bar on stderr, only on a TTY and without `-q`.
+      - `-q` prints the two summary lines; `-v` adds the `Merges:` section.
+      - `--debug` logs the traceback for each failed file.
+      - Exit codes: 0 / 1 / 2 / 130.
+    - **Fixture** `tests/fixtures/notes/ingest_basic/`: 15 sources → 13 items, including 1 exact and 1 fuzzy merge (98.1).
+    
+    ## Changes outside M7
+    - **M6 `ItemRepo.existing()` now returns only the item's own `task_norm`.** It used to return the norms of every linked source too, so a fuzzy merge became an exact match on the next run. As a result, `--no-fuzzy` or a higher threshold could never split it. That contradicts TC-M7-18 and G2 ("a config change applies everywhere"). With this change, re-running over unchanged sources gives the same groups as a fresh ingest. The M6 spec line and test are updated.
+    - Once split, two items are **not merged back** when fuzzy is turned on again. M5 never joins two existing items, because one of the IDs could already be in use (for example, marked done). This is documented in the M7 spec §3.5.
+    - **G4 is confirmed** in the root spec §9.1 and marked ✅ in the plan.
+    
+    ## Spec decisions recorded in the M7 spec
+    - With `--no-recursive`, only direct children of the root count as deleted, so sub-folder notes are kept.
+    - An `internal_error` file stores nothing and is retried next run.
+    - A re-reported skip has no line number, because the `notes` table has no column for it.
+    
+    ## Test cases
+    TC-M7-01 … TC-M7-19 (`tests/integration/test_ingest.py`, `tests/integration/test_cli_ingest.py`), plus edge cases: rollback after a failure mid-transaction, a sibling folder whose name shares a prefix, no-recursive removal, fixing a skipped note, report formatting, JSON write failure, the TTY progress bar, and `--debug`.
+    
+    ... [7 more lines]
+  [result]:
+    remote:      https://github.com/mohit-gupta-coditas/actiontrack-py/pull/new/feat/m7-ingest        
+    remote: 
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/7
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+PR #7 is open. Last step, as with earlier modules: linking it on the status board.
+
+  [tool: Bash] [Link PR #7 on status board, commit and push]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && sed -i 's#^| M7 | Draft | ☑ | ☑ | ☑ | — |#| M7 | Draft | ☑ | ☑ | ☑ | [\#7](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/7) |#' spec/plan.md && git diff --stat && git commit -qam "M7: link PR #7 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q && git log --oneline -1 && git status --short
+  [result]:
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+     spec/plan.md | 2 +-
+     1 file changed, 1 insertion(+), 1 deletion(-)
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    e09fe59 M7: link PR #7 on the status board
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I've opened the M7 pull request: **[PR #7](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/7)** (`feat/m7-ingest` → `main`). All tests passed before I committed, and the branch is pushed with a clean working tree.
+
+What I did with your answers:
+- **Ship it:** the work is in two commits, the `ingest` command and the G4 confirmation. A third commit links PR #7 on the status board in `spec/plan.md`, as earlier modules did.
+- **M6 store change:** kept. Re-running ingest on unchanged notes now groups items exactly as a fresh ingest would, so `--no-fuzzy` can split an earlier fuzzy merge.
+- **Split items stay apart:** kept. If you turn fuzzy matching back on, the two items are not merged again, so neither ID disappears. This is written down in the M7 spec.
+- **G4 confirmed:** the root spec (§9.1) now says how a note deleted from the folder is handled, and only notes under the folder being ingested are affected. I also added the `removed` count to the example report there. G4 is marked resolved in the plan.
+
+The PR description points reviewers to the M6 store change, since it touches code outside M7.
+
+The next module in the plan is M8 (the `list` and `done` commands). It depends on G3: whether `orphaned` items show up in `list`. That's still an open question I'll need you to confirm.
+
+
+####################################################################################################
+USER:
+done can you pull the changes
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+  [tool: Bash] [Check PR state, switch to main and pull]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && gh pr view 7 --json state,mergedAt -q '.state+" "+.mergedAt' && git checkout -q main && git pull -q && git log --oneline -4 && git status --short
+  [result]:
+    MERGED 2026-11-25T18:37:05Z
+    96a8bf2 Merge pull request #7 from mohit-gupta-coditas/feat/m7-ingest
+    e09fe59 M7: link PR #7 on the status board
+    1e5ef47 M7: confirm gap G4 in the root spec
+    9dd2c90 M7: ingest command (scan, per-file pipeline, deleted files, regroup, report)
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I pulled the changes: PR #7 is merged and your local `main` now matches it, with the merge commit `96a8bf2` on top. I also switched you from `feat/m7-ingest` back to `main`, and there are no uncommitted changes.
+
+Next in the plan is M8 (the `list` and `done` commands). Before I start, I need a decision on gap G3: should items flagged `orphaned` be hidden from the default `list` and left out of follow-up emails? The plan proposes yes, with `--flag orphaned` to show them. Want me to ask that as a question and then start on M8?
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv8.txt in conversations folder
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll look at how the existing exports in that folder are formatted first, so conv8.txt matches them.
+
+  [tool: Bash] [List conversations folder and preview an existing export]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && ls -la conversations 2>&1 | head; f=$(ls conversations/*.txt 2>/dev/null | head -1); [ -n "$f" ] && head -40 "$f"; git check-ignore -v conversations 2>&1
+  [result]:
+    Exit code 1
+    total 228
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 02:02 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 01:57 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 70905 Nov 26 01:59 conv1.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 75430 Nov 26 02:00 conv2.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121  8907 Nov 26 02:01 conv3.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 62276 Nov 26 02:02 conv4.txt
+    actiontrack — Conversation 1 (spec & SDD planning)
+    Session: 07eac96f-814b-4807-ae16-5a0afaba949a
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo (spec/).
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    Scenario
+    
+    
+    Your team's meeting notes pile up as markdown files. Action items get lost, and follow-up emails are written late or not at all. You will build a small CLI tool, actiontrack, that reads meeting notes, tracks the action items, and drafts follow-up emails for review.
+    
+    
+    What you build
+    
+    
+    A CLI with four commands:
+    
+    
+    1. actiontrack ingest <folder> parses every .md meeting note in the folder. Each note has
+       a date, attendees and free- appear as lines like - [ ]Priya to send the revised quote by Friday. The tool stores them with owner, task, due
+       date (resolved to a real daurce file and status.
+    2. actiontrack list shows items. Filters: --owner, --status open|done|overdue,
+       --due-before <date>. Overdu
+    3. actiontrack done <id> marks an item as done.
+    4. actiontrack followup <ownerper owner covering their openand overdue items, and creates a Gmail draft through the Gmail MCP connector. It never sends.
+    
+    
+    Edge cases the tool must handl
+    Duplicate items repeated across several meetings.
+    ... [7 more lines]
+  [tool: Bash] [Inspect export structure for tool calls and endings]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && grep -n "^####\|^[A-Z ]*:$\|^\[tool\|^TOOL\|^>>>" conversations/conv4.txt | head -30; sed -n 60,120p conversations/conv4.txt; tail -20 conversations/conv4.txt
+  [result]:
+    8:####################################################################################################
+    9:USER:
+    14:CLAUDE:
+    109:CLAUDE:
+    204:CLAUDE:
+    281:CLAUDE:
+    290:CLAUDE:
+    311:CLAUDE:
+    334:CLAUDE:
+    446:CLAUDE:
+    549:CLAUDE:
+    617:CLAUDE:
+    636:####################################################################################################
+    637:USER:
+    642:CLAUDE:
+    655:CLAUDE:
+    668:CLAUDE:
+    698:CLAUDE:
+    728:CLAUDE:
+    741:CLAUDE:
+    771:CLAUDE:
+    782:CLAUDE:
+    800:CLAUDE:
+    812:CLAUDE:
+    827:####################################################################################################
+    828:USER:
+    839:CLAUDE:
+    847:####################################################################################################
+    848:USER:
+    853:CLAUDE:
+        ... [58 more lines]
+    
+      [tool: Bash] [Read M3 spec, tasks, tests and the plan]
+      $ cat spec/modules/M3-dates/*.md && cat spec/plan.md
+      [result]:
+        # M3 — Due-Date Extraction & Resolution
+        
+        | | |
+        |---|---|
+        | **Status** | Draft |
+    ... [60 more lines]
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The earlier exports were generated from the session transcript files, in a USER/CLAUDE layout with condensed tool calls and results. I'll find this session's transcript and export it the same way.
+
+  [tool: Bash] [Locate this session transcript and check export header]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && head -6 conversations/conv4.txt; ls -la /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/*.jsonl | tail -5; sed -n 8,16p conversations/conv4.txt; grep -n "result\]" conversations/conv4.txt | head -3; grep -c "" conversations/conv4.txt
+  [result]:
+    actiontrack — Conversation 4 (M3 due dates: implement, PR, merge)
+    Session: f9a42155-df89-4707-9ee1-ad5b8ae48bb5
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+    ====================================================================================================
+    
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 1261640 Nov 26 02:02 /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fb5f7051-92b3-4b92-956b-4bd9e245f133.jsonl
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 1405052 Nov 26 01:18 /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fbcc87aa-8b24-49a1-a21c-d98a23ff3366.jsonl
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 1000096 Nov 26 02:02 /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fc4e2f0f-e3ab-4ae0-bd56-9b0b442d72d6.jsonl
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 2239699 Nov 26 01:54 /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fc60775a-5ec3-4fb9-ab44-e0af09b2fdce.jsonl
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 1312015 Nov 25 21:15 /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/ffc43fb1-0a8a-431d-a4a8-4cd3e0395e97.jsonl
+    ####################################################################################################
+    USER:
+    work on m3 module
+    
+    
+    ----------------------------------------------------------------------------------------------------
+    CLAUDE:
+    I'll start by looking at the spec layout and the M3 module spec.
+    
+    19:  [result]:
+    64:  [result]:
+    116:  [result]:
+    1099
+  [tool: Bash] [Inspect this session's transcript file]
+  $ f=/c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/40fa2a55-2010-4d82-bbef-9c8d278b7bbe.jsonl; ls -la $f && wc -l $f && head -c 1500 $f | cut -c1-600; echo; grep -o '"type":"[a-z_]*"' $f | sort | uniq -c | sort -rn | head
+  [result]:
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 1737630 Nov 26 02:02 /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/40fa2a55-2010-4d82-bbef-9c8d278b7bbe.jsonl
+    420 /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/40fa2a55-2010-4d82-bbef-9c8d278b7bbe.jsonl
+    {"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-25T18:18:55.392Z","sessionId":"40fa2a55-2010-4d82-bbef-9c8d278b7bbe"}
+    {"type":"queue-operation","operation":"dequeue","timestamp":"2026-11-25T18:18:55.406Z","sessionId":"40fa2a55-2010-4d82-bbef-9c8d278b7bbe"}
+    {"type":"ai-title","aiTitle":"M7 module","sessionId":"40fa2a55-2010-4d82-bbef-9c8d278b7bbe"}
+    {"parentUuid":null,"isSidechain":false,"promptId":"c0caa85f-45c4-4dbc-a7f9-7db1ac56891e","type":"user","message":{"role":"user","content":[{"type":"text","text":"work on M7 module"}]},"uuid":"534281ae-9564-41d1-b4ce-62a874ee128b","timestamp":"2026-11-25T18:18:55.633Z","permissionMode":"auto","origin":{"kind":"human"},"promptSource":"sdk","turnOrigin":"human","turnPosition":{"promptIndex":1,"turnIndex":1},"turnAttributionKey":"534281ae-9564-41d1-b4ce-62a874ee128b","userType":"external","entrypoint":"claude-vscode","cwd":"c:\\Users\\Coditas-Admin\\Desktop\\actionTracker","sessionId":"40fa2a55-20
+    {"parentUuid":"534281ae-9564-41d1-b4ce-62a874ee128b","isSidechain":false,"attachment":{"type":"environment","snapshot":{"workingDirectory":"c:\\Users\\Coditas-Admin\\Desktop\\actionTracker","isWorktree":false,"isGitRepo":true,"additionalWorkingDirectories":[],"platform":"win32","shell":"PowerShell (primary); Bash tool also available for POSIX scripts — each takes its own syntax.","osVersion":"Windows 10 Pro 10.0.19045","scratchpadDirectory":"C:\\U
+    
+        266 "type":"message"
+        212 "type":"string"
+        159 "type":"ephemeral"
+        133 "type":"assistant"
+         75 "type":"object"
+         74 "type":"tool_use"
+         74 "type":"direct"
+         64 "type":"user"
+         60 "type":"tool_result"
+         54 "type":"text"
+  [tool: Write] C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\40fa2a55-2010-4d82-bbef-9c8d278b7bbe\scratchpad\export_conv.py  (3466 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\40fa2a55-2010-4d82-bbef-9c8d278b7bbe\scratchpad\export_conv.py (file state is current in your context — no need to Read it back)
+  [tool: Bash] [Export this session to conv8.txt and preview it]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker" && .venv/Scripts/python -I "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/40fa2a55-2010-4d82-bbef-9c8d278b7bbe/scratchpad/export_conv.py" /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/40fa2a55-2010-4d82-bbef-9c8d278b7bbe.jsonl conversations/conv8.txt "actiontrack — Conversation 8 (M7 ingest: implement, PR, merge)" && ls -la conversations/conv8.txt && grep -c "" conversations/conv8.txt && grep -n "^USER:" -A2 conversations/conv8.txt && head -20 conversations/conv8.txt && tail -15 conversations/conv8.txt

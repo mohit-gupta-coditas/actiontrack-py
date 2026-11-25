@@ -1,0 +1,1691 @@
+actiontrack — Conversation 12 (M11 followup command: gaps, implement, PR, merge)
+Session: fbcc87aa-8b24-49a1-a21c-d98a23ff3366
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on M11 module, if there are any gaps use the ask user question tool with recommended options
+
+  [tool: Bash] [Read memory, list repo, recent history, docs]
+  $ cat "C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/memory/module-gap-workflow.md"; cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; ls; git log --oneline | head -30; find . -name "*.md" -not -path "*/node_modules/*" | head -50
+  [result]:
+    ---
+    name: module-gap-workflow
+    description: How the user wants spec gaps handled when implementing an actiontrack module (M0–M12)
+    metadata:
+      node_type: memory
+      type: feedback
+      originSessionId: 0bdf4b63-da21-46b6-8c2c-4c976b9b21e3
+      modified: 2026-11-25T19:02:17.919Z
+    ---
+    
+    When working on a module, raise every spec gap (root spec vs module spec mismatches, undefined edge cases, literal-template oddities) with AskUserQuestion, putting a "(Recommended)" option first. Then record each answer as a numbered gap (G<n> ✅) in spec/plan.md §5 and fold it into the root and module specs before or with the code.
+    
+    **Why:** The user asked for this explicitly on M9 (2026-11-26) and picked the recommended option every time; the project is spec-driven, so decisions must land in the specs.
+    **How to apply:** Follow the commit sequence used for every module: a "confirm gaps" spec commit, the implementation commit, then a "link PR #N on the status board" commit on feat/m<n>-<name>.
+    README.md
+    actiontrack
+    pyproject.toml
+    spec
+    tests
+    uv.lock
+    ce3173a Merge pull request #10 from mohit-gupta-coditas/feat/m10-gmail-mcp
+    5e17e9c M10: match the Gmail MCP connector (to as a list, viewUrl link)
+    55849f6 M10: confirm gaps G20, G21 and G22 (Gmail MCP connector, Q6)
+    bf8650a M10: link PR #10 on the status board
+    76e50ad M10: Gmail MCP adapter (allowlisted create_draft, schema checks, outbox)
+    a2f781d M10: confirm gaps G8, G16, G17, G18 and G19 in the specs
+    80b12e4 Merge pull request #9 from mohit-gupta-coditas/feat/m9-email-render
+    27f7264 M9: link PR #9 on the status board
+    a1a552b M9: follow-up email rendering (template, sorting, days overdue, subject, whitespace)
+    06106ab M9: confirm gaps G7, G12, G13 and G14 in the specs
+    60eb082 Merge pull request #8 from mohit-gupta-coditas/feat/m8-list-done
+    210187b M8: link PR #8 on the status board
+    2a30ce2 M8: list and done commands (filters, table/JSON output, prefix done)
+    3534fff M8: confirm gaps G3 and G11, settle the overdue marker in the specs
+    96a8bf2 Merge pull request #7 from mohit-gupta-coditas/feat/m7-ingest
+    e09fe59 M7: link PR #7 on the status board
+    1e5ef47 M7: confirm gap G4 in the root spec
+    9dd2c90 M7: ingest command (scan, per-file pipeline, deleted files, regroup, report)
+    7b58e7a Merge pull request #6 from mohit-gupta-coditas/feat/m6-store
+    55af035 M6: confirm gaps G1 and G2 in the root spec
+    ... [32 more lines]
+
+  [tool: Bash] [Read M11 module spec files]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; ls spec; cat spec/modules/M11-followup/*.md
+  [tool: Bash] [Read project plan with gaps list]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; cat spec/plan.md
+  [result]:
+    # actiontrack — Implementation Plan (Spec-Driven Development)
+    
+    | | |
+    |---|---|
+    | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
+    | **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7, M8, M9 and M10 done |
+    | **Date** | 2026-11-25 |
+    
+    ---
+    
+    ## 1. How we work
+    
+    Every module goes through the same steps, in this order:
+    
+    1. **Spec**: `modules/<M>/spec.md` is reviewed and marked *Approved*. Any change to the root spec is made there first.
+    2. **Tests (red)**: every test case in `modules/<M>/tests.md` is written as a pytest test whose name contains its TC ID
+       (e.g. `test_TC_M3_04_weekday_same_day_rolls_to_next_week`). They all fail.
+    3. **Implement (green)**: work through `modules/<M>/tasks.md` in order, ticking tasks off as they pass.
+    4. **Gate**: the module's Definition of Done (below) passes. Update the status board in §4.
+    5. **Merge**: branch `feat/<m-id>-<name>` → PR → `main`. The PR description links the module spec and lists its TC IDs.
+    
+    ### Definition of Done (every module)
+    - All TCs in the module's `tests.md` are implemented and passing.
+    - `ruff check`, `ruff format --check` and `mypy --strict actiontrack` are clean.
+    - Line coverage of the module's package is ≥ 90% for the pure modules (M1–M5, M9), and ≥ 80% for the others.
+    - No public interface differs from the spec. If it had to, the spec was updated first (in the same PR).
+    - Every REQ ID the module owns appears in at least one TC.
+    
+    ### Conventions
+    - **IDs**: requirements `REQ-<AREA>-NN` (root spec §18) · modules `M0`–`M12` · tasks `T<m>.<n>` · test cases `TC-M<m>-NN`.
+    - **Test locations**: `tests/unit/<package>/` for unit tests, `tests/integration/` for anything that touches SQLite, the file system or MCP,
+      `tests/e2e/` for M12. Shared fixtures live in `tests/fixtures/notes/<scenario>/`.
+    - **Markers**: `@pytest.mark.slow` for perf/e2e. The default `pytest` run excludes slow tests, and CI runs everything.
+    - **Time**: tests never read the real clock. They use `FixedClock` (M0).
+    
+    ## 2. Modules
+    
+    | ID | Module | Package / files | Depends on | REQ IDs owned |
+    |---|---|---|---|---|
+    | [M0](modules/M0-foundation/spec.md) | Foundation | `pyproject.toml`, `cli.py` skeleton, `config.py`, `models.py`, `errors.py`, `clock.py`, `console.py`, `__main__.py` | — | CLI-01..07, CLI-09, CLI-10 |
+    ... [16 more lines]
+
+  [result]:
+    modules
+    plan.md
+    requirements.md
+    # M11 — `followup` Command
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M2 (`derive_email`), M6, M8 (`resolve_owner_query`), M9, M10 |
+    | **Files** | `actiontrack/services/followup.py`, the `followup` command in `actiontrack/cli.py` |
+    | **REQ IDs** | REQ-FU-01, 02, 03, 05, 06 |
+    
+    ## 1. Purpose
+    For one owner, gather their open and overdue items, render the follow-up email, and create a Gmail **draft** for them to review.
+    Never send.
+    
+    ## 2. Interface
+    
+    ```python
+    @dataclass(frozen=True)
+    class FollowupResult:
+        person: Person; recipient: str; email: RenderedEmail; item_ids: tuple[str, ...]
+        draft: DraftResult | None          # None for --dry-run
+        outbox_path: Path | None           # set when the draft failed and the email was saved locally
+    
+    def run_followup(owner_query: str, *, conn, cfg: Config, clock: Clock, dry_run: bool,
+                     sink_factory: Callable[[McpConfig], DraftSink]) -> FollowupResult
+    ```
+    
+    CLI: `actiontrack followup <owner> [--dry-run]`
+    
+    ## 3. Steps
+    
+    | # | Step | Failure → |
+    |---|---|---|
+    | 1 | `resolve_owner_query(owner, PeopleRepo)` (M8) (REQ-FU-01) | 0 or 2+ matches → `UserInputError` with candidates, exit 2, no draft |
+    | 2 | `ItemRepo.query(ItemFilter(owner_keys=(person.key,), status="open"))`. Orphaned and ambiguous items are excluded (G3, Q5) (REQ-FU-02) | None → stderr `No open items for <name>. No draft created.`, exit 0 |
+    | 3 | Recipient (REQ-FU-03): `person.email` if set, else `derive_email(person.full_name, domain=cfg.email_domain)` | No last name → `UserInputError('cannot derive email: no last name for "Priya"', hint="use full names in the attendees list")`, exit 2 |
+    | 4 | Split items into overdue/open, map them to `EmailItem` (most recent source for the meeting title/date), `render_followup` (M9) | — |
+    | 5 | `--dry-run` (REQ-FU-05): print `To:`, `Subject:`, a blank line, then the body to **stdout**. `sink_factory` is **not called**. Exit 0 | — |
+    ... [31 more lines]
+
+  [tool: Bash] [Outline root spec and follow-up references]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; grep -n "^#" spec/requirements.md; grep -n "FU-\|Q5\|Q6\|followup\|outbox\|exit 3\|never sends" spec/requirements.md
+  [tool: Bash] [List source and test files]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; find actiontrack tests -name "*.py" -o -name "*.j2" | grep -v __pycache__; wc -l actiontrack/*.py actiontrack/*/*.py
+  [result]:
+    1:# actiontrack — Requirements & Architecture Spec
+    11:## 1. Problem
+    17:## 2. Goals / Non-goals
+    31:## 3. Decisions Summary
+    52:## 4. Input Format (Meeting Notes)
+    54:### 4.1 Expected structure
+    69:## Notes
+    77:# Q4 pricing sync — 2026-11-18
+    85:### 4.2 Action item lines
+    98:## 5. Extraction Pipeline
+    112:### 5.1 Date resolution rules
+    120:## 6. Owner Resolution (incl. same first name)
+    138:## 7. Deduplication (D7, D8)
+    155:## 8. Data Model (SQLite)
+    231:### 8.1 Item ID (D14)
+    238:## 9. Commands
+    243:### 9.1 `actiontrack ingest <folder>`
+    267:### 9.2 `actiontrack list`
+    281:### 9.3 `actiontrack done <id>`
+    285:### 9.4 `actiontrack followup <owner>`
+    303:## 10. Gmail MCP Integration (D4)
+    305:### 10.1 Client
+    328:### 10.2 No-send guarantee
+    335:## 11. Architecture
+    380:## 12. Error Handling Rules
+    395:## 13. CLI Best Practices
+    399:### 13.1 Packaging & installation
+    405:### 13.2 Command design
+    413:### 13.3 Help & discoverability
+    419:### 13.4 Output
+    429:### 13.5 Errors
+    436:### 13.6 Configuration precedence
+    444:### 13.7 Performance
+    450:### 13.8 Robustness & portability
+    456:### 13.9 Code structure for the CLI layer
+    461:## 14. Testing & Quality (D16)
+    475:## 15. Configuration
+    493:## 16. Acceptance Criteria
+    507:## 17. Open Questions / Assumptions to Confirm
+    520:## 18. Requirement Index
+    ... [24 more lines]
+
+  [result]:
+    actiontrack/cli.py
+    actiontrack/clock.py
+    actiontrack/config.py
+    actiontrack/console.py
+    actiontrack/dedup.py
+    actiontrack/email/gmail_mcp.py
+    actiontrack/email/outbox.py
+    actiontrack/email/render.py
+    actiontrack/email/__init__.py
+    actiontrack/errors.py
+    actiontrack/models.py
+    actiontrack/parsing/dates.py
+    actiontrack/parsing/items.py
+    actiontrack/parsing/note_loader.py
+    actiontrack/parsing/people.py
+    actiontrack/parsing/__init__.py
+    actiontrack/services/ingest.py
+    actiontrack/services/query.py
+    actiontrack/services/__init__.py
+    actiontrack/store/db.py
+    actiontrack/store/repo.py
+    actiontrack/store/__init__.py
+    actiontrack/templates/followup.txt.j2
+    actiontrack/__init__.py
+    actiontrack/__main__.py
+    tests/conftest.py
+    tests/integration/conftest.py
+    tests/integration/mcp_fakes.py
+    tests/integration/store/test_db.py
+    tests/integration/store/test_repo.py
+    tests/integration/store/__init__.py
+    tests/integration/test_cli_ingest.py
+    tests/integration/test_cli_list_done.py
+    tests/integration/test_gmail_mcp.py
+    tests/integration/test_ingest.py
+    tests/integration/test_query.py
+    tests/integration/__init__.py
+    tests/unit/conftest.py
+    tests/unit/core/test_cli.py
+    tests/unit/core/test_config.py
+    ... [40 more lines]
+
+  [tool: Bash] [Read followup spec sections and CLI]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -n 280,335p spec/requirements.md; sed -n 375,395p spec/requirements.md; cat actiontrack/cli.py
+  [tool: Bash] [Read query service, render, outbox, gmail adapter, errors]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; cat actiontrack/services/query.py actiontrack/email/render.py actiontrack/email/outbox.py actiontrack/email/gmail_mcp.py actiontrack/errors.py
+  [result]:
+    """The `list` and `done` use cases: filtered views of stored items, and marking one done (M8)."""
+    
+    from __future__ import annotations
+    
+    import sqlite3
+    from dataclasses import dataclass
+    from datetime import date
+    from typing import Literal
+    
+    from actiontrack.clock import Clock
+    from actiontrack.dedup import resolve_prefix, shortest_unique_prefixes
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import Flag, Person
+    from actiontrack.parsing.dates import DateOrder, parse_user_date
+    from actiontrack.store.repo import ItemFilter, ItemRepo, ItemRow, PeopleRepo, SourceRef
+    
+    Status = Literal["open", "done", "overdue"]
+    STATUSES: tuple[Status, ...] = ("open", "done", "overdue")
+    
+    
+    @dataclass(frozen=True)
+    class ItemView:
+        id: str
+        short_id: str
+        owner_key: str | None
+        owner_display: str | None
+        owner_raw: str | None
+        task: str
+        due_date: date | None
+        status: Status
+        flags: tuple[str, ...]
+        sources: tuple[SourceRef, ...]
+    
+    
+    def resolve_owner_query(q: str, people: PeopleRepo) -> Person:
+        """The one person matching `q` (key, email, full or first name). Reused by `followup`."""
+        text = q.strip()
+        matches = people.find(text)
+        if not matches:
+            raise UserInputError(
+    ... [77 more lines]
+
+  [result]:
+    ### 9.3 `actiontrack done <id>`
+    - Resolves the ID prefix (§8.1) and sets `status='done'`, `done_source='cli'`, `done_at=now`.
+    - Already done → prints a notice and exits 0. Unknown or ambiguous ID → exits 2.
+    
+    ### 9.4 `actiontrack followup <owner>`
+    1. Resolves the owner (same rules as `--owner`). An ambiguous or unknown owner → error, no draft.
+    2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3). If there are none → message, no draft.
+    3. Resolves the recipient (D13):
+       - the email from any attendees entry for this person, **or**
+       - `firstname.lastname@coditas.com`, derived from the full name (lowercased, accents removed, spaces/hyphens in multi-part
+         names joined with `.`, e.g. `Anna Maria Lopez` → `anna.maria.lopez@coditas.com`). *(Assumption about multi-part names; confirm.)*
+       - Only a first name known → error `cannot derive email: no last name for "Priya"`.
+       - The domain comes from config (`email.domain`, default `coditas.com`).
+    4. Renders the email from a plain-text Jinja2 template (`templates/followup.txt.j2`):
+       - Subject: `Follow-up: your open action items (N open, M overdue)`, where N counts the open items that are **not**
+         overdue, so the total is N + M (G7). With no overdue items it is `(N open)`.
+       - Body: greeting, an **Overdue** section and then an **Open** section, each item with its task, due date and source meeting
+         (title + date), and a sign-off.
+    5. `--dry-run` prints the rendered email and does not call MCP.
+    6. Otherwise it calls the Gmail MCP `create_draft` tool and prints the draft ID/link, then records a row in `drafts`.
+    7. **It never sends** (see §10.2).
+    
+    ## 10. Gmail MCP Integration (D4)
+    
+    ### 10.1 Client
+    - Uses the official Python `mcp` SDK (`ClientSession`) over the transport set in config:
+      ```toml
+      [gmail_mcp]
+      transport = "stdio"            # or "http"
+      command   = "npx"              # stdio: server launch command
+      args      = ["-y", "<gmail-mcp-server>"]
+      url       = ""                 # http: server URL
+      draft_tool = "create_draft"
+      to_as_list = true              # the Gmail connector takes `to` as a list (G20)
+      ```
+    - The server is the **Gmail MCP connector** (Q6): `create_draft(to: [str], subject, body)` returning `id`, `threadId`, `viewUrl`.
+    - Auth/OAuth is handled by the MCP server or a bridge in front of it; `[gmail_mcp]` points at an endpoint that is already
+      authenticated. The CLI reads and stores no Google credentials (G22).
+    - Targets the `mcp` 2.x SDK (`mcp>=2.3,<3`) (G16).
+    - Before calling the tool, the client checks that `draft_tool` is in `list_tools()` (following pagination) and fails with a clear
+    ... [27 more lines]
+
+  [tool: Bash] [Inspect repo APIs, drafts schema, Person, derive_email]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; grep -n "class \|def " actiontrack/store/repo.py; grep -n "class DraftRepo" -A40 actiontrack/store/repo.py; grep -n "drafts" -A12 actiontrack/store/db.py | head -40; grep -n "class Person\b\|class Person(" -A12 actiontrack/models.py; grep -n "def derive_email" -A25 actiontrack/parsing/people.py
+  [result]:
+    37:class NoteRow:
+    49:class SourceRef:
+    57:class ItemFilter:
+    67:class ItemRow:
+    89:class NoteRepo:
+    90:    def __init__(self, conn: sqlite3.Connection) -> None:
+    93:    def get(self, path: Path) -> NoteRow | None:
+    108:    def upsert_ok(self, meta: NoteMeta, *, now: datetime) -> None:
+    113:    def upsert_skipped(self, rec: SkipRecord, *, sha256: str | None, now: datetime) -> None:
+    119:    def paths_under(self, root: Path) -> list[Path]:
+    124:    def delete(self, path: Path) -> None:
+    128:    def _upsert(
+    155:class SourceRepo:
+    156:    def __init__(self, conn: sqlite3.Connection) -> None:
+    159:    def replace_for_note(self, path: Path, items: Sequence[ParsedItem]) -> None:
+    183:    def all(self) -> list[ParsedItem]:
+    193:    def count(self) -> int:
+    198:class PeopleRepo:
+    199:    def __init__(self, conn: sqlite3.Connection) -> None:
+    202:    def upsert_many(self, attendees: Iterable[Attendee]) -> None:
+    214:    def find(self, query: str) -> list[Person]:
+    230:    def get(self, key: str) -> Person | None:
+    234:    def _all(self) -> list[Person]:
+    237:    def _item_owners(self) -> list[Person]:
+    253:class ItemRepo:
+    254:    def __init__(self, conn: sqlite3.Connection) -> None:
+    257:    def existing(self) -> list[ExistingItem]:
+    279:    def apply_groups(self, result: DedupResult) -> None:
+    323:    def query(self, f: ItemFilter, *, today: date) -> list[ItemRow]:
+    340:    def ids(self) -> list[str]:
+    343:    def get(self, item_id: str, *, today: date) -> ItemRow | None:
+    360:    def mark_done(self, item_id: str, *, now: datetime) -> bool:
+    371:    def _select_sql(self, f: ItemFilter, *, today: date) -> tuple[str, dict[str, Any]]:
+    400:class DraftRepo:
+    401:    def __init__(self, conn: sqlite3.Connection) -> None:
+    404:    def record(
+    428:def _path(p: Path) -> str:
+    432:def _iso(d: date | None) -> str | None:
+    436:def _date(s: str | None) -> date | None:
+    440:def _datetime(s: str | None) -> datetime | None:
+    ... [65 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'm reading the M11 spec and the code it builds on (owner lookup, renderer, Gmail adapter, store) to find gaps before asking you about them.
+
+  [tool: Bash] [Read repo dataclasses, PeopleRepo, ItemRepo query]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -n 30,90p actiontrack/store/repo.py; sed -n 198,260p actiontrack/store/repo.py; sed -n 320,400p actiontrack/store/repo.py; sed -n 490,513p actiontrack/store/repo.py
+  [tool: Bash] [Config fields, console Output, template]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; grep -n "sign_off\|outbox\|email_domain\|gmail_mcp\|data_dir\|class Config\|class McpConfig" actiontrack/config.py | head -30; cat actiontrack/console.py | sed -n 1,98p; cat actiontrack/templates/followup.txt.j2
+  [result]:
+    from actiontrack.parsing.people import normalize_name
+    from actiontrack.store.db import transaction
+    
+    _DUE_FLAGS = frozenset({Flag.NO_DUE, Flag.UNPARSED_DUE})
+    
+    
+    @dataclass(frozen=True, slots=True)
+    class NoteRow:
+        path: Path
+        sha256: str | None
+        status: Literal["ok", "skipped"]
+        meeting_date: date | None
+        title: str | None
+        ingested_at: datetime
+        skip_reason: str | None
+        skip_detail: str | None
+    
+    
+    @dataclass(frozen=True, slots=True)
+    class SourceRef:
+        path: Path
+        line_no: int
+        meeting_date: date
+        note_title: str | None
+    
+    
+    @dataclass(frozen=True)
+    class ItemFilter:
+        owner_keys: tuple[str, ...] | None = None
+        status: Literal["open", "done", "overdue"] | None = None
+        due_before: date | None = None
+        unassigned: bool = False
+        flag: Flag | None = None
+        include_orphaned: bool = False
+    
+    
+    @dataclass(frozen=True, slots=True)
+    class ItemRow:
+        """`ItemGroup` fields minus the parsed sources, plus derived and per-source data."""
+    
+    ... [85 more lines]
+
+  [result]:
+    24:        "ACTIONTRACK_EMAIL_DOMAIN": "email_domain",
+    34:        (None, "outbox_dir"): "outbox_dir",
+    35:        ("email", "domain"): "email_domain",
+    36:        ("email", "sign_off"): "sign_off",
+    52:class McpConfig:
+    64:class Config:
+    66:    outbox_dir: Path
+    67:    email_domain: str = "coditas.com"
+    68:    sign_off: str = "Thanks"
+    72:    gmail_mcp: McpConfig = field(default_factory=McpConfig)
+    78:    "outbox_dir",
+    79:    "email_domain",
+    80:    "sign_off",
+    84:    "gmail_mcp",
+    89:    """(config_file, db_path, outbox_dir) in the OS-native locations."""
+    91:    data_dir = Path(platformdirs.user_data_dir(APP_NAME, appauthor=False))
+    92:    return config_dir / "config.toml", data_dir / "actiontrack.db", data_dir / "outbox"
+    99:    default_file, default_db, default_outbox = default_paths()
+    100:    values: dict[str, Any] = {"db_path": default_db, "outbox_dir": default_outbox}
+    122:        if key not in SETTING_KEYS or key == "gmail_mcp":
+    153:    mcp = data.get("gmail_mcp")
+    156:            raise UserInputError(f"[gmail_mcp] must be a table in {where}")
+    157:        out["gmail_mcp"] = _parse_mcp(mcp, where)
+    167:    if key in ("db_path", "outbox_dir"):
+    171:    if key == "email_domain":
+    175:    if key == "sign_off":
+    204:            f"invalid value {table[name]!r} for gmail_mcp.{name} in {where}: expected {expected}"
+    233:            raise UserInputError(f"unknown key gmail_mcp.{name} in {where}")
+    """stdout/stderr consoles and logging (REQ-CLI-03, REQ-CLI-04, REQ-CLI-09).
+    
+    stdout carries data only; messages, warnings, progress and logs go to stderr.
+    """
+    
+    from __future__ import annotations
+    
+    import logging
+    import sys
+    from collections.abc import Mapping
+    from dataclasses import dataclass
+    from typing import Literal
+    ... [61 more lines]
+
+  [tool: Bash] [Read integration fixtures and fakes]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; cat tests/integration/conftest.py; sed -n 1,80p tests/integration/mcp_fakes.py; sed -n 1,60p tests/integration/test_cli_list_done.py; cat tests/conftest.py
+  [result]:
+    """Builders and fixtures shared by the integration tests: stored notes, sources and item groups."""
+    
+    from __future__ import annotations
+    
+    import sqlite3
+    from collections.abc import Iterator
+    from datetime import date, datetime
+    from pathlib import Path
+    from typing import Literal
+    
+    import pytest
+    
+    from actiontrack.dedup import DedupResult, make_item_id, normalize_task
+    from actiontrack.models import Attendee, Flag, ItemGroup, NoteMeta, OwnerResolution, ParsedItem
+    from actiontrack.store.db import MEMORY, connect
+    from actiontrack.store.repo import ItemRepo, NoteRepo, PeopleRepo, SourceRepo
+    from tests.unit.conftest import owner, src
+    
+    __all__ = ["SEEDED", "add_note", "group", "owner", "seed", "src", "store_sources"]
+    
+    NOW = datetime(2026, 11, 25, 10, 0).astimezone()
+    
+    
+    @pytest.fixture
+    def conn() -> Iterator[sqlite3.Connection]:
+        """A fresh, migrated in-memory DB."""
+        c = connect(MEMORY)
+        yield c
+        c.close()
+    
+    
+    def add_note(conn: sqlite3.Connection, path: str | Path, meeting: str = "2026-11-18") -> Path:
+        p = Path(path)
+        meta = NoteMeta(p, f"sha-{p.as_posix()}", date.fromisoformat(meeting), None, (), ())
+        NoteRepo(conn).upsert_ok(meta, now=NOW)
+        return p
+    
+    
+    def store_sources(conn: sqlite3.Connection, *items: ParsedItem) -> None:
+        """Store `items` grouped by note, adding each note first."""
+    ... [65 more lines]
+
+  [tool: Bash] [Read MCP fakes and unit conftest helpers]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -n 80,200p tests/integration/mcp_fakes.py; sed -n 1,70p tests/integration/test_gmail_mcp.py; sed -n 1,40p tests/unit/conftest.py; grep -n "def src\|def owner" -A20 tests/unit/conftest.py | head -50
+  [result]:
+    )
+    
+            async def call_tool(_ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
+                self.calls.append((params.name, dict(params.arguments or {})))
+                if self.delay:
+                    await anyio.sleep(self.delay)
+                return self.result
+    
+            return Server("fake-gmail", on_list_tools=list_tools, on_call_tool=call_tool)
+    
+        def session_factory(self) -> Callable[[], AbstractAsyncContextManager[ClientSession]]:
+            @asynccontextmanager
+            async def open_session() -> AsyncIterator[ClientSession]:
+                transport = InMemoryTransport(self.server())
+                async with transport as (read, write), ClientSession(read, write) as session:
+                    yield session
+    
+            return open_session
+    from __future__ import annotations
+    
+    import inspect
+    import time
+    from collections.abc import Iterator
+    from datetime import datetime
+    from email import message_from_bytes, policy
+    from email.message import EmailMessage
+    from pathlib import Path
+    from types import MappingProxyType
+    from typing import Any
+    
+    import anyio
+    import pytest
+    
+    from actiontrack.config import McpConfig
+    from actiontrack.console import make_output
+    from actiontrack.email.gmail_mcp import (
+        ALLOWED_TOOLS,
+        DraftResult,
+        GmailMcpDraftSink,
+        _parse_result,
+    ... [78 more lines]
+
+  [tool: Bash] [Check DB transaction handling, short ids, prior commit layout]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -n 1,101p actiontrack/store/db.py | grep -n "def \|isolation\|autocommit\|commit\|OperationalError" ; grep -n "def shortest_unique_prefixes" -A15 actiontrack/dedup.py; git log --stat -3 --format="%h %s" 76e50ad a2f781d | head -40
+  [result]:
+    19:def connect(path: Path) -> sqlite3.Connection:
+    28:        conn = sqlite3.connect(path, isolation_level=None)
+    46:def transaction(conn: sqlite3.Connection) -> Iterator[None]:
+    49:    Re-entrant: inside an open transaction it does nothing, so the outer block owns the commit.
+    60:    conn.commit()
+    63:def migrate(conn: sqlite3.Connection) -> None:
+    90:def _migrations() -> list[tuple[int, str]]:
+    99:def _user_version(conn: sqlite3.Connection) -> int:
+    140:def shortest_unique_prefixes(ids: Iterable[str], *, min_len: int = 6) -> dict[str, str]:
+    141-    """Each ID's shortest prefix (at least `min_len` chars) that no other ID in the set shares."""
+    142-    ordered = sorted(set(ids))
+    143-    out: dict[str, str] = {}
+    144-    for i, item_id in enumerate(ordered):
+    145-        neighbours = ordered[max(i - 1, 0) : i] + ordered[i + 1 : i + 2]
+    146-        shared = max((_common_prefix_len(item_id, o) for o in neighbours), default=0)
+    147-        out[item_id] = item_id[: max(min_len, shared + 1)]
+    148-    return out
+    149-
+    150-
+    151-def resolve_prefix(prefix: str, ids: Iterable[str]) -> str:
+    152-    """The one ID starting with `prefix` (case-insensitive, at least 4 hex chars)."""
+    153-    p = prefix.strip().lower()
+    154-    if len(p) < _MIN_PREFIX or not _HEX.match(p):
+    155-        raise UserInputError(
+    76e50ad M10: Gmail MCP adapter (allowlisted create_draft, schema checks, outbox)
+    
+     actiontrack/email/gmail_mcp.py      | 242 ++++++++++++++++++++++++++++++++++++
+     actiontrack/email/outbox.py         |  43 +++++++
+     spec/modules/M10-gmail-mcp/tasks.md |  18 +--
+     spec/modules/M10-gmail-mcp/tests.md |   2 +-
+     spec/plan.md                        |   4 +-
+     tests/integration/mcp_fakes.py      |  97 +++++++++++++++
+     tests/integration/test_gmail_mcp.py | 239 +++++++++++++++++++++++++++++++++++
+     7 files changed, 633 insertions(+), 12 deletions(-)
+    a2f781d M10: confirm gaps G8, G16, G17, G18 and G19 in the specs
+    
+     pyproject.toml                      |  2 +-
+     spec/modules/M10-gmail-mcp/spec.md  | 36 +++++++++++++++++++++++-------------
+     spec/modules/M10-gmail-mcp/tasks.md |  8 ++++----
+     spec/modules/M10-gmail-mcp/tests.md | 12 ++++++++----
+    ... [5 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I found six gaps in the M11 spec. Asking about them now:
+
+  [tool: AskUserQuestion] {"questions": [{"question": "Q5: should `followup Priya Shah` also include items flagged ambiguous_owner whose candidates include her (e.g. 'Priya to update the budget' with two Priyas)?", "header": "Q5 ambiguous", "multiSelect": false, "options": [{"label": "Exclude (Recommended)", "description": "They have no owner_key until resolved, so they're left out. Matches the root spec's proposed answer and what ItemRepo already does."}, {"label": "Include, marked", "description": "Add them to every candidate's email with an '(ambiguous owner)' note. Needs a template + query change."}]}, {"question":
+... [truncated, 1544 more chars]
+  [tool: AskUserQuestion] {"questions": [{"question": "The Gmail draft was created but recording the `drafts` row then fails (e.g. DB locked). What should followup do?", "header": "Record fails", "multiSelect": false, "options": [{"label": "Show link, exit 1 (Recommended)", "description": "Print the 'Draft created …' line first so the user knows the draft exists, then fail with the DB error (exit 1, §12). No outbox, no retry of the draft."}, {"label": "Just fail, exit 1", "description": "Follow the spec's order (record, then print) and let the fatal DB error surface; the user may not learn the draft exists."}]}, {"ques
+... [truncated, 517 more chars]
+  [result]:
+    Your questions have been answered: "Q5: should `followup Priya Shah` also include items flagged ambiguous_owner whose candidates include her (e.g. 'Priya to update the budget' with two Priyas)?"="Exclude (Recommended)", "Which item short IDs should the follow-up email show (the [a3f91c] tag the reader can pass to `done`)?"="Same as `list` (Recommended)", "The MCP server created a draft but returned neither a draft ID nor a link. What should followup do?"="Success, ID unknown (Recommended)", "[gmail_mcp] is misconfigured (url/command not set, or draft_tool not allowed). The adapter fails before any MCP call. What should followup do?"="Config error, no outbox (Recommended)". You can now continue with these answers in mind.
+
+  [result]:
+    Your questions have been answered: "The Gmail draft was created but recording the `drafts` row then fails (e.g. DB locked). What should followup do?"="Show link, exit 1 (Recommended)", "Items with an unparsed due phrase (e.g. 'ASAP', flag unparsed_due) have no due_date, so the M9 template shows them as '(no due date)'. Change that in M11?"="Keep '(no due date)' (Recommended)". You can now continue with these answers in mind.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All six answered with the recommended option. I'll record them as Q5 ✅ and G23–G27, then build M11 on `feat/m11-followup`.
+
+  [tool: Bash] [Branch, read root spec Q/future sections, prior gap commit]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; git checkout -b feat/m11-followup; sed -n 505,520p spec/requirements.md; sed -n 605,640p spec/requirements.md; git show a2f781d -- spec/requirements.md spec/plan.md | head -80
+  [result]:
+    Switched to a new branch 'feat/m11-followup'
+    11. Every command's `--help` includes an example, and no user error produces a Python traceback unless `--debug` is set.
+    
+    ## 17. Open Questions / Assumptions to Confirm
+    
+    | # | Item | Current assumption |
+    |---|---|---|
+    | Q1 | Weekday on the same day ("by Friday" said on a Friday) | The following week's Friday |
+    | Q2 | A note re-lists a CLI-done item as `[ ]` | It stays done (future: `reopen <id>`) |
+    | Q3 | Owner not in the attendees list | Kept, flagged `owner_not_attendee`. Email derived from the full name if available |
+    | Q4 | Multi-part / hyphenated surnames in email derivation | Parts joined with `.`, accents removed |
+    | Q5 | Does `followup` also include items with `ambiguous_owner` whose candidates include this person? | No, they are excluded until resolved |
+    | Q6 ✅ | Which Gmail MCP server is used (exact launch command / URL) | The Gmail MCP connector: `create_draft(to: [str], subject, body)`. The endpoint is configurable and already authenticated (G20–G22); confirmed in M12's smoke test |
+    | Q7 | Multiple owners on one line ("Priya and Rahul to …") | The first owner is kept. Flag `multi_owner` |
+    | Q8 | Non-ISO dates like `03/04/2026` | Read day-first (3 April). Configurable |
+    
+    ## 18. Requirement Index
+    | REQ-CLI-10 | An injectable `Clock`. `ACTIONTRACK_TODAY` override | §13.8, §14 |
+    | REQ-ACC-01..11 | Acceptance criteria 1–11 | §16 |
+    
+    ## 19. Future Work
+    - `reopen <id>` and `assign <id> <owner>` commands (to fix ambiguous/unassigned items).
+    - A `people.yaml` override for aliases/nicknames.
+    - Optional LLM polish of the email body.
+    - A watch mode that re-ingests when files change.
+    commit a2f781d7144db3e995491c254ed90202885191c9
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Thu Nov 26 00:46:41 2026 +0530
+    
+        M10: confirm gaps G8, G16, G17, G18 and G19 in the specs
+        
+        - requirements.md §10.1: target the mcp 2.x SDK and follow list_tools pagination (G16); the
+          draft tool must not require arguments the client does not send (G8, G18); the outbox file
+          name uses a filename-safe owner slug (G17); prefer the server's draft link (G19).
+        - plan.md: G8 resolved; new gaps G16-G19 recorded and resolved.
+        - M10 spec/tests/tasks: mcp 2.x names, TC-M10-16 (slug), TC-M10-17 (required args),
+          TC-M10-18 (paged tools), TC-M10-13 extended for links.
+        - pyproject: pin mcp>=2.3,<3.
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    ... [21 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the spec commit: root spec §9.4/§17/§19, plan §5, and the M11 spec/tests/tasks.
+
+  [tool: Bash] [Fold confirmed gaps into root, plan and M11 specs]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; python - <<'EOF'
+    from pathlib import Path
+    def sub(path, old, new, count=1):
+        p = Path(path); t = p.read_text(encoding="utf-8")
+        assert t.count(old) == count, (path, old, t.count(old))
+        p.write_text(t.replace(old, new), encoding="utf-8")
+    
+    R = "spec/requirements.md"
+    sub(R, "2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3). If there are none → message, no draft.",
+    "2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3) and `ambiguous_owner` items, which have no\n   owner until resolved (Q5). If there are none → message, no draft.")
+    sub(R, "     (title + date), and a sign-off.\n",
+    "     (title + date), and a sign-off. Each item is tagged with the same short ID `list` prints (G23). An item with an\n     unparsed due phrase (`ASAP`) reads `(no due date)` (G27).\n")
+    sub(R, "6. Otherwise it calls the Gmail MCP `create_draft` tool and prints the draft ID/link, then records a row in `drafts`.\n",
+    """6. Otherwise it calls the Gmail MCP `create_draft` tool and prints the draft ID/link, then records a row in `drafts`.
+       - A draft returned with neither an ID nor a link still counts as created: the row is recorded with no draft ID (G24).
+       - A `[gmail_mcp]` config error (no `url`/`command`, a non-allowlisted `draft_tool`) fails before any MCP call with the
+         config error's exit code and writes no outbox file (G25). Only a failed MCP call writes the outbox and exits 3.
+       - If the draft was created but the `drafts` row cannot be written, the error (exit 1) names the draft's link or ID, so
+         the user knows it exists (G26).
+    """)
+    sub(R, "| Q5 | Does `followup` also include items with `ambiguous_owner` whose candidates include this person? | No, they are excluded until resolved |",
+    "| Q5 ✅ | Does `followup` also include items with `ambiguous_owner` whose candidates include this person? | No, they are excluded until resolved (confirmed with M11) |")
+    sub(R, "- Optional LLM polish of the email body.\n",
+    "- Optional LLM polish of the email body.\n- Show an unparsed due phrase (`ASAP`) in the follow-up email instead of `(no due date)` (G27).\n")
+    
+    P = "spec/plan.md"
+    sub(P, "and G8, G16–G22 with M10 (root spec §10.1).",
+    "G8, G16–G22 with M10 (root spec §10.1),\nand Q5 and G23–G27 with M11 (root spec §9.4, §17, §19).")
+    sub(P, "| M10, M12 |\n\n## 6.",
+    """| M10, M12 |
+    ... [15 more lines]
+  [result]:
+    spec/modules/M11-followup/spec.md  | 10 +++++-----
+     spec/modules/M11-followup/tasks.md |  8 ++++----
+     spec/modules/M11-followup/tests.md |  5 +++++
+     spec/plan.md                       | 10 ++++++++--
+     spec/requirements.md               | 14 +++++++++++---
+     5 files changed, 33 insertions(+), 14 deletions(-)
+
+  [tool: Bash] [Commit the gap confirmations]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; git add -A spec && git commit -q -F - <<'EOF'
+    M11: confirm Q5 and gaps G23-G27 in the specs
+    
+    - requirements.md §9.4: ambiguous items are excluded (Q5); the email uses the `list` short IDs
+      (G23); a draft with no ID still counts (G24); MCP config errors write no outbox (G25); a
+      failed drafts insert names the created draft (G26); ASAP reads "(no due date)" (G27).
+    - §17: Q5 confirmed. §19: showing the raw due phrase is future work.
+    - plan.md: G23-G27 recorded and resolved.
+    - M11 spec/tests/tasks: the new rules, TC-M11-14 .. TC-M11-18.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git log --oneline -1
+  [result]:
+    5c37154 M11: confirm Q5 and gaps G23-G27 in the specs
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Spec commit done. Now the service.
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\services\followup.py  (4492 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\services\followup.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the CLI command.
+
+  [tool: Bash] [Wire the followup command into the CLI]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; python - <<'EOF'
+    from pathlib import Path
+    p = Path("actiontrack/cli.py"); t = p.read_text(encoding="utf-8")
+    old = '''    @app.command()
+        def followup(
+            owner: Annotated[str, typer.Argument(help="Person key, email, full or first name.")],
+        ) -> None:
+            """Draft a follow-up email to an owner about their open items.
+    
+            Creates a Gmail draft (it never sends) with the owner's overdue and open items.
+    
+            \\b
+            Examples:
+              actiontrack followup priya
+              actiontrack followup "Rahul Sharma" --dry-run
+            """
+            raise FatalError("not implemented")
+    '''
+    new = '''    @app.command()
+        def followup(
+            ctx: typer.Context,
+            owner: Annotated[str, typer.Argument(help="Person key, email, full or first name.")],
+            dry_run: Annotated[
+                bool,
+                typer.Option("--dry-run", help="Print the email instead of creating a draft."),
+            ] = False,
+        ) -> None:
+            """Draft a follow-up email to an owner about their open items.
+    
+            Creates a Gmail draft (it never sends) with the owner's overdue and open items.
+    ... [56 more lines]
+  [result]:
+    Traceback (most recent call last):
+      File "<stdin>", line 40, in <module>
+    AssertionError
+    33:from actiontrack.errors import ActionTrackError, ExitCode, FatalError, UserInputError
+    251:        raise FatalError("not implemented")
+
+  [tool: Bash] [Check line endings in cli.py]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; file actiontrack/cli.py; sed -n 236,252p actiontrack/cli.py | cat -A | head -20
+  [result]:
+    actiontrack/cli.py: Python script, Unicode text, UTF-8 text executable, with CRLF line terminators
+            _done(app_ctx, item_id)$
+    $
+        @app.command()$
+        def followup($
+            owner: Annotated[str, typer.Argument(help="Person key, email, full or first name.")],$
+        ) -> None:$
+            """Draft a follow-up email to an owner about their open items.$
+    $
+            Creates a Gmail draft (it never sends) with the owner's overdue and open items.$
+    $
+            \b$
+            Examples:$
+              actiontrack followup priya$
+              actiontrack followup "Rahul Sharma" --dry-run$
+            """$
+            raise FatalError("not implemented")$
+    $
+
+  [tool: Bash] [Inspect raw bytes around followup command]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; git config core.autocrlf; python -c "
+    d=open('actiontrack/cli.py','rb').read(); print(d.count(b'\r\n'), d.count(b'\n'))
+    i=d.find(b'def followup'); print(repr(d[i-30:i+500]))"
+  [result]:
+    true
+    550 550
+    b'd)\r\n\r\n    @app.command()\r\n    def followup(\r\n        owner: Annotated[str, typer.Argument(help="Person key, email, full or first name.")],\r\n    ) -> None:\r\n        """Draft a follow-up email to an owner about their open items.\r\n\r\n        Creates a Gmail draft (it never sends) with the owner\'s overdue and open items.\r\n\r\n        \\b\r\n        Examples:\r\n          actiontrack followup priya\r\n          actiontrack followup "Rahul Sharma" --dry-run\r\n        """\r\n        raise FatalError("not implemented")\r\n\r\n    config_app = typer.'
+
+  [tool: Bash] [Locate the mismatching fragment]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; python - <<'EOF'
+    from pathlib import Path
+    t = Path("actiontrack/cli.py").read_text(encoding="utf-8")
+    for s in ['    def followup(\n        owner:', '"""Draft a follow-up email', '        \\b\n        Examples:\n          actiontrack followup priya', 'raise FatalError("not implemented")\n']:
+        print(t.count(s), repr(s))
+    EOF
+  [result]:
+    1 '    def followup(\n        owner:'
+    1 '"""Draft a follow-up email'
+    0 '        \x08\n        Examples:\n          actiontrack followup priya'
+    1 'raise FatalError("not implemented")\n'
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The shell is eating backslashes; I'll use the Edit tool for the CLI.
+
+  [tool: Read] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  [result]:
+    238	    @app.command()
+    239	    def followup(
+    240	        owner: Annotated[str, typer.Argument(help="Person key, email, full or first name.")],
+    241	    ) -> None:
+    242	        """Draft a follow-up email to an owner about their open items.
+    243	
+    244	        Creates a Gmail draft (it never sends) with the owner's overdue and open items.
+    245	
+    246	        \b
+    247	        Examples:
+    248	          actiontrack followup priya
+    249	          actiontrack followup "Rahul Sharma" --dry-run
+    250	        """
+    251	        raise FatalError("not implemented")
+
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old:     def followup(
+        owner: Annotated[str, typer.Argument(help="Person key, email, full or first name.")],
+    ) -> None:
+        """Draft a follow-up email to an owner about their open items.
+
+        Creates a Gmail draft (it never sends) with the owner's overdue and open items.
+
+        \b
+ 
+... [truncated, 165 more chars]
+  new:     def followup(
+        ctx: typer.Context,
+        owner: Annotated[str, typer.Argument(help="Person key, email, full or first name.")],
+        dry_run: Annotated[
+            bool,
+            typer.Option("--dry-run", help="Print the email instead of creating a draft."),
+        ] = False,
+   
+... [truncated, 495 more chars]
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old: class _RichProgress:
+  new: def _followup(app_ctx: AppContext, owner: str, *, dry_run: bool) -> None:
+    from actiontrack.email.gmail_mcp import GmailMcpDraftSink
+    from actiontrack.services.followup import run_followup
+    from actiontrack.store.db import connect
+
+    output = app_ctx.output
+    conn = connect(app_ctx.conf
+... [truncated, 1089 more chars]
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+
+  [tool: Bash] [Find stub references in CLI and tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; grep -n "FatalError\|followup\|not implemented" actiontrack/cli.py tests -r | grep -v "^actiontrack/cli.py:.*def _followup\|services/followup"
+  [result]:
+    actiontrack/cli.py:33:from actiontrack.errors import ActionTrackError, ExitCode, FatalError, UserInputError
+    actiontrack/cli.py:239:    def followup(
+    actiontrack/cli.py:254:          actiontrack followup priya
+    actiontrack/cli.py:255:          actiontrack followup "Rahul Mehta" --dry-run
+    actiontrack/cli.py:258:        _followup(app_ctx, owner, dry_run=dry_run)
+    actiontrack/cli.py:481:    from actiontrack.services.followup import run_followup
+    actiontrack/cli.py:487:        result = run_followup(
+    tests/integration/store/test_db.py:13:from actiontrack.errors import FatalError
+    tests/integration/store/test_db.py:61:    with pytest.raises(FatalError, match="newer actiontrack"):
+    tests/integration/store/test_db.py:132:        with pytest.raises(FatalError, match=r"t\.db"):
+    tests/integration/store/test_db.py:144:    with pytest.raises(FatalError, match=r"dir\.db"):
+    tests/integration/store/test_db.py:150:    with pytest.raises(FatalError, match="file"):
+    tests/integration/store/test_db.py:157:    with pytest.raises(FatalError, match=r"t\.db"):
+    Binary file tests/integration/store/__pycache__/test_db.cpython-312-pytest-9.2.0.pyc matches
+    tests/integration/test_ingest.py:12:from actiontrack.errors import FatalError
+    tests/integration/test_ingest.py:114:    with pytest.raises(FatalError):
+    Binary file tests/integration/__pycache__/test_ingest.cpython-312-pytest-9.2.0.pyc matches
+    tests/unit/core/test_cli.py:44:    for command in ("ingest", "list", "done", "followup", "config"):
+    tests/unit/core/test_cli.py:55:    [["ingest"], ["list"], ["done"], ["followup"], ["config", "show"]],
+    tests/unit/core/test_cli.py:148:@pytest.mark.parametrize("args", [["followup", "priya"]])
+    tests/unit/core/test_cli.py:151:    assert "Error: not implemented" in capsys.readouterr().err
+    tests/unit/core/test_errors_clock.py:12:    FatalError,
+    tests/unit/core/test_errors_clock.py:19:    assert FatalError.exit_code == ExitCode.FATAL == 1
+    tests/unit/core/test_errors_clock.py:30:    assert FatalError("boom").hint is None
+    Binary file tests/unit/core/__pycache__/test_cli.cpython-312-pytest-9.2.0.pyc matches
+    Binary file tests/unit/core/__pycache__/test_errors_clock.cpython-312-pytest-9.2.0.pyc matches
+    tests/unit/email/test_render.py:11:from actiontrack.email.render import EmailItem, RenderedEmail, render_followup
+    tests/unit/email/test_render.py:44:    return render_followup(
+    Binary file tests/unit/email/__pycache__/test_render.cpython-312-pytest-9.2.0.pyc matches
+
+  [tool: Bash] [See the stub test and how M8 handled it]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -n 140,160p tests/unit/core/test_cli.py; git log --format=%h -S"stubbed" -- tests/unit/core/test_cli.py | head; git show 2a30ce2 -- tests/unit/core/test_cli.py | head -40
+  [result]:
+    def test_TC_M0_16_unexpected_exception(capsys: pytest.CaptureFixture[str]) -> None:
+        assert run(["boom"], app_=app_raising(ValueError("secret detail"))) == 1
+        err = capsys.readouterr().err
+        assert "internal error (ValueError)" in err
+        assert "Traceback" not in err
+        assert "secret detail" not in err
+    
+    
+    @pytest.mark.parametrize("args", [["followup", "priya"]])
+    def test_TC_M0_27_stub_commands(args: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+        assert run(args) == 1
+        assert "Error: not implemented" in capsys.readouterr().err
+    
+    
+    def test_callback_builds_app_context(monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ACTIONTRACK_TODAY", "2026-11-18")
+        seen: list[AppContext] = []
+        app = create_app()
+    
+        @app.command()
+        def probe(ctx: typer.Context) -> None:
+    commit 2a30ce2a0e7a9dcdd2248538638f60799894c66e
+    Author: Mohit Gupta <mohit.gupta@coditas.com>
+    Date:   Thu Nov 26 00:18:20 2026 +0530
+    
+        M8: list and done commands (filters, table/JSON output, prefix done)
+        
+        - services/query.py: ItemView, resolve_owner_query (0 / 1 / many with candidates),
+          list_items (default open, contradiction check, --due-before via parse_user_date, orphaned
+          hidden unless --flag orphaned), mark_done (prefix resolution, done_source=cli).
+        - store/repo.py: PeopleRepo.find also matches item owners with no people row (G11).
+        - cli.py: real `list` (rich table with red rows + `⚠ overdue`, stderr footer, JSON schema v1)
+          and `done` commands replace the M0 stubs.
+        - tests: seeded_db fixture built through the repos; TC-M8-01 … 25.
+        
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    
+    diff --git a/tests/unit/core/test_cli.py b/tests/unit/core/test_cli.py
+    index 32ee8b7..8db8dd2 100644
+    --- a/tests/unit/core/test_cli.py
+    ... [10 more lines]
+
+  [tool: Bash] [Find TC-M0-27 in specs]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; grep -n "TC-M0-27" -r spec
+  [result]:
+    spec/modules/M0-foundation/tasks.md:8:- [x] **T0.2 Write failing tests** TC-M0-01 … TC-M0-27 in `tests/unit/core/`. Mark them xfail-strict only where they depend on later
+    spec/modules/M0-foundation/tests.md:33:| TC-M0-27 | Stub command `ingest` (before M7) | invoke | `Error: not implemented`, exit 1 | REQ-CLI-06 |
+
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\core\test_cli.py
+  old: @pytest.mark.parametrize("args", [["followup", "priya"]])
+def test_TC_M0_27_stub_commands(args: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(args) == 1
+    assert "Error: not implemented" in capsys.readouterr().err
+
+
+  new: 
+  [tool: Bash] [Mark TC-M0-27 retired; check REQ-CLI-06 coverage]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -i 's/| TC-M0-27 | Stub command `ingest` (before M7) | invoke | `Error: not implemented`, exit 1 | REQ-CLI-06 |/| TC-M0-27 | Stub command `ingest` (before M7) | invoke | `Error: not implemented`, exit 1. Retired with M11: no stub is left | REQ-CLI-06 |/' spec/modules/M0-foundation/tests.md; grep -n "TC-M0-27" spec/modules/M0-foundation/tests.md; grep -n "REQ-CLI-06" spec/modules/*/tests.md
+  [tool: Edit] c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py
+  old: ExitCode, FatalError, UserInputError
+  new: ExitCode, UserInputError
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\core\test_cli.py has been updated successfully.
+
+  [result]:
+    33:| TC-M0-27 | Stub command `ingest` (before M7) | invoke | `Error: not implemented`, exit 1. Retired with M11: no stub is left | REQ-CLI-06 |
+    spec/modules/M0-foundation/tests.md:18:| TC-M0-12 | A command raising `UserInputError("bad", hint="try x")` | invoke | stderr `Error: bad` + `Hint: try x`, no `Traceback`, exit 2 | REQ-CLI-05, REQ-CLI-06 |
+    spec/modules/M0-foundation/tests.md:20:| TC-M0-14 | A command raising `ExternalServiceError` | invoke | exit 3 | REQ-CLI-06 |
+    spec/modules/M0-foundation/tests.md:21:| TC-M0-15 | A command raising `KeyboardInterrupt` | invoke | stderr `Interrupted`, exit 130 | REQ-CLI-06 |
+    spec/modules/M0-foundation/tests.md:22:| TC-M0-16 | A command raising `ValueError` | invoke | stderr `internal error (ValueError)`, exit 1, no traceback | REQ-CLI-05, REQ-CLI-06 |
+    spec/modules/M0-foundation/tests.md:33:| TC-M0-27 | Stub command `ingest` (before M7) | invoke | `Error: not implemented`, exit 1. Retired with M11: no stub is left | REQ-CLI-06 |
+
+  [result]:
+    The file c:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\cli.py has been updated successfully.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Code is in; now writing the M11 tests (service-level with a recording sink, plus CLI tests including the end-to-end run against the M10 fake MCP server).
+
+  [tool: Bash] [Check Attendee, McpConfig, FixedClock, query test setup]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; grep -n "class Attendee\|class OwnerResolution" -A12 actiontrack/models.py; grep -n "class McpConfig" -A12 actiontrack/config.py; grep -n "class FixedClock" -A15 actiontrack/clock.py; grep -n "^def \|^class " tests/integration/test_query.py | head; sed -n 1,30p tests/integration/test_query.py
+  [result]:
+    80:class Attendee:
+    81-    """M2."""
+    82-
+    83-    full_name: str
+    84-    first_name: str
+    85-    last_name: str | None
+    86-    email: str | None  # explicit email from the note
+    87-    key: str  # explicit email lowercased | derived email | "name:<first>" (G1)
+    88-    derived_email: str | None  # firstname.lastname@domain, None if no last name
+    89-
+    90-
+    91-@dataclass(frozen=True, slots=True)
+    92:class OwnerResolution:
+    93-    """M2."""
+    94-
+    95-    owner_key: str | None
+    96-    owner_display: str | None
+    97-    owner_raw: str | None
+    98-    flags: frozenset[Flag]
+    99-    candidates: tuple[str, ...]  # candidate keys if ambiguous
+    100-
+    101-
+    102-@dataclass(frozen=True, slots=True)
+    103-class DueResolution:
+    104-    """M3."""
+    52:class McpConfig:
+    53-    transport: Literal["stdio", "http"] = "stdio"
+    54-    command: str | None = None
+    55-    args: tuple[str, ...] = ()
+    56-    url: str | None = None
+    57-    draft_tool: str = "create_draft"
+    58-    arg_names: Mapping[str, str] = field(default_factory=lambda: _DEFAULT_ARG_NAMES)
+    59-    to_as_list: bool = True  # the Gmail connector takes `to` as a list (G20)
+    60-    timeout_s: float = 30.0
+    61-
+    62-
+    63-@dataclass(frozen=True)
+    64-class Config:
+    32:class FixedClock:
+    33-    """A clock frozen at a given day. `now` defaults to the start of that day, local time."""
+    ... [54 more lines]
+
+  [tool: Bash] [Check Config fields and file tails]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -n 63,75p actiontrack/config.py; tail -5 tests/integration/mcp_fakes.py; grep -n "^from\|^import" tests/integration/conftest.py
+  [result]:
+    @dataclass(frozen=True)
+    class Config:
+        db_path: Path
+        outbox_dir: Path
+        email_domain: str = "coditas.com"
+        sign_off: str = "Thanks"
+        fuzzy_enabled: bool = True
+        fuzzy_threshold: int = 88  # 0..100
+        date_order: DateOrder = "DMY"
+        gmail_mcp: McpConfig = field(default_factory=McpConfig)
+        sources: Mapping[str, Source] = field(default_factory=dict)  # where each key came from
+    
+    
+                transport = InMemoryTransport(self.server())
+                async with transport as (read, write), ClientSession(read, write) as session:
+                    yield session
+    
+            return open_session
+    3:from __future__ import annotations
+    5:import sqlite3
+    6:from collections.abc import Iterator
+    7:from datetime import date, datetime
+    8:from pathlib import Path
+    9:from typing import Literal
+    11:import pytest
+    13:from actiontrack.dedup import DedupResult, make_item_id, normalize_task
+    14:from actiontrack.models import Attendee, Flag, ItemGroup, NoteMeta, OwnerResolution, ParsedItem
+    15:from actiontrack.store.db import MEMORY, connect
+    16:from actiontrack.store.repo import ItemRepo, NoteRepo, PeopleRepo, SourceRepo
+    17:from tests.unit.conftest import owner, src
+
+  [tool: Bash] [Add RecordingSink fake to the MCP fakes module]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; cat >> tests/integration/mcp_fakes.py <<'EOF'
+    
+    
+    @dataclass
+    class RecordingSink:
+        """A fake `DraftSink` (M11): records each draft, then returns `result` or raises `error`."""
+    
+        result: DraftResult = field(
+            default_factory=lambda: DraftResult("r-123", "https://mail.example/r-123", {})
+        )
+        error: Exception | None = None
+        drafts: list[dict[str, str]] = field(default_factory=list)
+        configs: list[McpConfig] = field(default_factory=list)
+    
+        def factory(self, cfg: McpConfig) -> RecordingSink:
+            """Stands in for `GmailMcpDraftSink` as the `sink_factory`."""
+            self.configs.append(cfg)
+            return self
+    
+        def create_draft(self, *, to: str, subject: str, body: str) -> DraftResult:
+            self.drafts.append({"to": to, "subject": subject, "body": body})
+            if self.error is not None:
+                raise self.error
+            return self.result
+    EOF
+    python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/integration/mcp_fakes.py"); t = p.read_text(encoding="utf-8")
+    t = t.replace("from mcp.server import Server\n", "from mcp.server import Server\n\nfrom actiontrack.config import McpConfig\nfrom actiontrack.email.gmail_mcp import DraftResult\n", 1)
+    t = t.replace("`reply`, `forward`) and records each call it receives.", "`reply`, `forward`) and records each call it receives.", 1)
+    ... [3 more lines]
+  [result]:
+    """In-process fake Gmail MCP servers for the M10 tests (M10 tests.md).
+    
+    Every fake exposes `create_draft` next to the tools that must never be called (`send_message`,
+    `reply`, `forward`) and records each call it receives. Every fake built is kept in `FAKES`, so a
+    test-wide fixture can assert that no send tool was ever invoked (TC-M10-02).
+    """
+    
+    from __future__ import annotations
+    
+    from collections.abc import AsyncIterator, Callable
+    from contextlib import AbstractAsyncContextManager, asynccontextmanager
+    from dataclasses import dataclass, field
+    from typing import Any
+    
+    import anyio
+    import mcp.types as types
+    from mcp import ClientSession
+    from mcp.client._memory import InMemoryTransport
+    from mcp.server import Server
+    
+    from actiontrack.config import McpConfig
+    from actiontrack.email.gmail_mcp import DraftResult
+    
+    FORBIDDEN = ("send_message", "reply", "forward")
+
+  [tool: Bash] [Add followup seed extras to integration conftest]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/integration/mcp_fakes.py"); t = p.read_text(encoding="utf-8")
+    t = t.replace('"""In-process fake Gmail MCP servers for the M10 tests (M10 tests.md).', '"""In-process fake Gmail MCP servers for the M10 tests (M10 tests.md), and a fake sink for M11.', 1)
+    p.write_text(t, encoding="utf-8")
+    
+    p = Path("tests/integration/conftest.py"); t = p.read_text(encoding="utf-8")
+    t = t.replace('__all__ = ["SEEDED", "add_note", "group", "owner", "seed", "src", "store_sources"]',
+     '__all__ = [\n    "FOLLOWUP",\n    "SEEDED",\n    "add_note",\n    "group",\n    "owner",\n    "seed",\n    "seed_followup",\n    "src",\n    "store_sources",\n]', 1)
+    t += '''
+    
+    # --- followup extras (M11) -------------------------------------------------------------------
+    
+    POOJA = "p.s@client.com"  # an explicit email, not the derived pooja.sen@coditas.com
+    DEV = "dev.patel@coditas.com"  # every item done
+    
+    
+    def _followup_groups() -> dict[str, ItemGroup]:
+        """Added to the seeded items: Rahul gets a second open item (2 open + 1 overdue in all)."""
+        note = "notes/2026-11-18-sync.md"
+        return {
+            "badges": group(src(_person(RAHUL, "Rahul Mehta"), "order the badges", "2026-11-18",
+                                line=11, due="2026-12-03", path=note)),
+            "logo": group(src(_person(POOJA, "Pooja Sen"), "approve the logo", "2026-11-18",
+                              line=12, path=note), flags=frozenset({Flag.NO_DUE})),
+            "minutes": group(src(_person(DEV, "Dev Patel"), "send the minutes", "2026-11-18",
+                                 line=13, due="2026-11-19", checked=True, path=note), status="done"),
+        }  # fmt: skip
+    
+    
+    ... [16 more lines]
+  [result]:
+    ok
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the service-level tests.
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_followup.py  (9589 chars — content in repo)
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_followup.py (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Tidy imports and run the service tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; python - <<'EOF'
+    from pathlib import Path
+    p = Path("tests/integration/test_followup.py"); t = p.read_text(encoding="utf-8")
+    t = t.replace("import sqlite3\n", "import json\nimport sqlite3\n", 1)
+    t = t.replace('set(__import__("json").loads(row["item_ids"]))', 'set(json.loads(row["item_ids"]))')
+    t = t.replace("from actiontrack.config import Config, McpConfig\n", "from actiontrack.config import Config, McpConfig\nfrom actiontrack.dedup import DedupResult\n")
+    t = t.replace("    store_sources(conn, *g.sources)\n    from actiontrack.dedup import DedupResult\n\n    ItemRepo", "    store_sources(conn, *g.sources)\n    ItemRepo")
+    p.write_text(t, encoding="utf-8")
+    EOF
+    uv run pytest tests/integration/test_followup.py -q 2>&1 | tail -30
+  [result]:
+    Building actiontrack @ file:///C:/Users/Coditas-Admin/Desktop/actionTracker
+          Built actiontrack @ file:///C:/Users/Coditas-Admin/Desktop/actionTracker
+    Uninstalled 1 package in 4ms
+    Installed 1 package in 30ms
+    ..................                                                       [100%]
+    18 passed in 2.97s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Service tests pass (18). Now the CLI tests.
+
+  [tool: Bash] [Check config env var names]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -n 18,40p actiontrack/config.py
+  [result]:
+    Source = Literal["flag", "env", "file", "default"]
+    DateOrder = Literal["DMY", "MDY"]
+    
+    ENV_KEYS: Mapping[str, str] = MappingProxyType(
+        {
+            "ACTIONTRACK_DB": "db_path",
+            "ACTIONTRACK_EMAIL_DOMAIN": "email_domain",
+            "ACTIONTRACK_FUZZY_THRESHOLD": "fuzzy_threshold",
+            "ACTIONTRACK_DATE_ORDER": "date_order",
+        }
+    )
+    
+    # TOML (section, key) → Config field. A `None` section means the top level.
+    _FILE_KEYS: Mapping[tuple[str | None, str], str] = MappingProxyType(
+        {
+            (None, "db_path"): "db_path",
+            (None, "outbox_dir"): "outbox_dir",
+            ("email", "domain"): "email_domain",
+            ("email", "sign_off"): "sign_off",
+            ("dedup", "fuzzy_threshold"): "fuzzy_threshold",
+            ("dedup", "fuzzy_enabled"): "fuzzy_enabled",
+            ("parsing", "date_order"): "date_order",
+        }
+
+  [tool: Write] c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_followup.py  (6184 chars — content in repo)
+  [tool: Bash] [Run the CLI followup tests]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; uv run pytest tests/integration/test_cli_followup.py -q 2>&1 | tail -30
+  [result]:
+    File created successfully at: c:\Users\Coditas-Admin\Desktop\actionTracker\tests\integration\test_cli_followup.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    ...........                                                              [100%]
+    11 passed in 4.71s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Both test files pass. Running the full suite and the quality gate (ruff, mypy, coverage).
+
+  [tool: Bash] [Format, lint, type-check, full test run with coverage]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; uv run ruff format actiontrack tests >/dev/null; uv run ruff check actiontrack tests 2>&1 | tail -20; uv run ruff format --check actiontrack tests | tail -3; uv run mypy --strict actiontrack 2>&1 | tail -5; uv run pytest -q -m "" --cov=actiontrack --cov-report=term 2>&1 | grep -E "followup|cli.py|TOTAL|passed|failed"
+  [result]:
+    14 | | from actiontrack.store.db import connect
+    15 | | from tests.integration.conftest import PRIYA_NAIR, RAHUL, seed_followup
+    16 | | from tests.integration.mcp_fakes import FAKES, FORBIDDEN, FakeGmail, RecordingSink
+       | |__________________________________________________________________________________^
+    17 |
+    18 |   TODAY = date(2026, 11, 25)
+       |
+    help: Organize imports
+       |
+    9  |
+    10 + from actiontrack.cli import run
+    11 | from actiontrack.config import McpConfig
+    12 | from actiontrack.email import gmail_mcp
+    13 | from actiontrack.errors import ExternalServiceError
+       - from actiontrack.cli import run
+    14 | from actiontrack.store.db import connect
+       |
+    
+    Found 1 error.
+    [*] 1 fixable with `--fix`.
+    82 files already formatted
+    Success: no issues found in 25 source files
+    actiontrack\cli.py                     235      3    99%
+    actiontrack\services\followup.py        62      0   100%
+    TOTAL                                 2071     24    99%
+    580 passed, 1 skipped in 53.41s
+    [This command modified 1 file you've previously read: tests\integration\test_followup.py. Call Read before editing.]
+
+  [tool: Bash] [Fix import order; check type-ignore usage]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; uv run ruff check --fix -q actiontrack tests; uv run ruff check actiontrack tests; grep -n "get_content\|type: ignore" tests/integration/test_gmail_mcp.py tests/integration/test_followup.py; grep -n "mypy" pyproject.toml
+  [result]:
+    All checks passed!
+    tests/integration/test_gmail_mcp.py:211:        assert msg.get_content().replace("\r\n", "\n") == body  # .eml lines end in CRLF
+    tests/integration/test_followup.py:178:    assert msg.get_content().replace("\r\n", "\n") == sink.drafts[0]["body"]  # type: ignore[attr-defined]
+    26:    "mypy>=1.11",
+    49:[tool.mypy]
+    [This command modified 1 file you've previously read: tests\integration\test_cli_followup.py. Call Read before editing.]
+
+  [tool: Bash] [Drop needless type-ignore and recheck]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -i 's|== sink.drafts\[0\]\["body"\]  # type: ignore\[attr-defined\]|== sink.drafts[0]["body"]|' tests/integration/test_followup.py; sed -n 170,180p tests/integration/test_followup.py; uv run ruff format --check tests | tail -1; uv run pytest -q tests/integration/test_followup.py 2>&1 | tail -1
+  [result]:
+    path = e.value.outbox_path
+        assert path.parent == cfg.outbox_dir and path.name.startswith("rahul.mehta-coditas.com-")
+        assert e.value.message == f"Draft could not be created: timeout. Email saved to {path}"
+        assert e.value.hint == "check gmail_mcp settings"
+        assert e.value.exit_code == 3
+        msg = message_from_bytes(path.read_bytes(), policy=policy.default)
+        assert msg["To"] == RAHUL
+        assert msg["Subject"] == sink.drafts[0]["subject"]
+        assert msg.get_content().replace("\r\n", "\n") == sink.drafts[0]["body"]
+        assert drafts(db) == []
+    
+    57 files already formatted
+    18 passed in 2.38s
+    [This command modified 1 file you've previously read: tests\integration\test_followup.py. Call Read before editing.]
+
+  [tool: Bash] [Update M11 spec interface, tasks, status board; trace check]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; python - <<'EOF'
+    from pathlib import Path
+    def sub(path, old, new):
+        p = Path(path); t = p.read_text(encoding="utf-8")
+        assert t.count(old) == 1, (path, old)
+        p.write_text(t.replace(old, new), encoding="utf-8")
+    S = "spec/modules/M11-followup/spec.md"
+    sub(S, """    person: Person; recipient: str; email: RenderedEmail; item_ids: tuple[str, ...]
+        draft: DraftResult | None          # None for --dry-run
+        outbox_path: Path | None           # set when the draft failed and the email was saved locally
+    """, """    person: Person
+        recipient: str | None              # None, like email, when the person has no open items
+        email: RenderedEmail | None
+        item_ids: tuple[str, ...]
+        draft: DraftResult | None          # None for --dry-run or no open items
+    
+    class DraftNotCreatedError(ExternalServiceError):   # exit 3
+        outbox_path: Path                  # where the email was saved when the draft failed
+    """)
+    sub(S, "| **Status** | Draft |", "| **Status** | Implemented |")
+    sub(S, "| 2 | `ItemRepo.query(ItemFilter(owner_keys=(person.key,), status=\"open\"))`. Orphaned and ambiguous items are excluded (G3, Q5 ✅) (REQ-FU-02) | None → stderr `No open items for <name>. No draft created.`, exit 0 |",
+    "| 2 | `ItemRepo.query(ItemFilter(owner_keys=(person.key,), status=\"open\"))`. Orphaned and ambiguous items are excluded (G3, Q5 ✅) (REQ-FU-02) | None → result with `email=None`; stderr `No open items for <name>. No draft created.`, exit 0 |")
+    sub(S, "`ExternalServiceError` from `create_draft` → `write_outbox(...)`, stderr `Draft could not be created: <msg>. Email saved to <path>`, exit 3.",
+    "`ExternalServiceError` from `create_draft` → `write_outbox(...)`, then `DraftNotCreatedError('Draft could not be created: <msg>. Email saved to <path>')`, exit 3.")
+    sub(S, "| 5 | `--dry-run` (REQ-FU-05): print `To:`, `Subject:`, a blank line, then the body to **stdout**. `sink_factory` is **not called**. Exit 0 | — |",
+    "| 5 | `--dry-run` (REQ-FU-05): print `To:`, `Subject:`, a blank line, then the body to **stdout**, and `Dry run: no draft created.` to stderr. `sink_factory` is **not called**. Exit 0 | — |")
+    K = "spec/modules/M11-followup/tasks.md"
+    t = Path(K).read_text(encoding="utf-8").replace("- [ ] **T11", "- [x] **T11")
+    Path(K).write_text(t, encoding="utf-8")
+    P = "spec/plan.md"
+    ... [4 more lines]
+  [result]:
+    tests/integration/test_followup.py:17
+    tests/integration/test_cli_followup.py:10
+     M actiontrack/cli.py
+     M spec/modules/M0-foundation/tests.md
+     M spec/modules/M11-followup/spec.md
+     M spec/modules/M11-followup/tasks.md
+     M spec/plan.md
+     M tests/integration/conftest.py
+     M tests/integration/mcp_fakes.py
+     M tests/unit/core/test_cli.py
+    ?? actiontrack/services/followup.py
+    ?? tests/integration/test_cli_followup.py
+    ?? tests/integration/test_followup.py
+
+  [tool: Bash] [Check spec status convention]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; grep -h "| \*\*Status\*\*" spec/modules/*/spec.md | sort | uniq -c
+  [result]:
+    12 | **Status** | Draft |
+          1 | **Status** | Implemented |
+
+  [tool: Bash] [Commit implementation and push branch]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -i 's/| \*\*Status\*\* | Implemented |/| **Status** | Draft |/' spec/modules/M11-followup/spec.md; git add -A && git commit -q -F - <<'EOF'
+    M11: followup command (owner lookup, draft via MCP, dry-run, outbox fallback)
+    
+    - services/followup.py: run_followup resolves the owner (M8), selects open items without
+      orphaned/ambiguous ones (G3, Q5), resolves the recipient (explicit or derived email), renders
+      with the `list` short IDs (G23) and creates exactly one draft. --dry-run never builds the sink.
+      An MCP failure writes the outbox and raises DraftNotCreatedError (exit 3); config errors
+      surface before any call with no outbox (G25); a draft with no ID is still recorded (G24); a
+      failed drafts insert names the created draft (G26). Items are never changed.
+    - cli.py: the real `followup <owner> [--dry-run]` replaces the M0 stub.
+    - tests: RecordingSink, seed_followup extras, TC-M11-01 .. 18 (service + CLI, incl. the
+      end-to-end run against the M10 fake MCP server). TC-M0-27 retired: no stub is left.
+    - M11 spec: FollowupResult/DraftNotCreatedError interface as built; tasks ticked; status board.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git push -u origin feat/m11-followup 2>&1 | tail -2
+  [result]:
+    warning: in the working copy of 'spec/modules/M0-foundation/tests.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/modules/M11-followup/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/services/followup.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/test_cli_followup.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/integration/test_followup.py', LF will be replaced by CRLF the next time Git touches it
+    To https://github.com/mohit-gupta-coditas/actiontrack-py.git
+     * [new branch]      feat/m11-followup -> feat/m11-followup
+
+  [tool: Bash] [Look at the previous PR body format]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; gh pr view 10 --json body -q .body | head -30
+  [result]:
+    Implements [M10 — Gmail MCP adapter](spec/modules/M10-gmail-mcp/spec.md).
+    
+    ## Summary
+    - `GmailMcpDraftSink` (`actiontrack/email/gmail_mcp.py`): the MCP client can only create drafts. `create_draft` is its only public method, and `_call` checks the hard-coded `ALLOWED_TOOLS = {"create_draft"}` before every tool call. A config that points `draft_tool` at another tool fails at construction.
+    - stdio / streamable-HTTP transports from `[gmail_mcp]`; `list_tools` pagination; input-schema validation (G8, G18); `is_error`, timeout, launch and protocol failures → `ExternalServiceError` (exit 3).
+    - Draft ID and link parsing; the link the server returns wins over the built `#drafts?compose=<id>` link (G19).
+    - `write_outbox` (`actiontrack/email/outbox.py`): RFC 5322 `.eml` with `X-Actiontrack-Status: draft-not-created`, filename-safe owner slug (G17), never overwrites.
+    - Targets the mcp 2.x SDK, pinned to `mcp>=2.3,<3` (G16).
+    
+    ## Gaps confirmed
+    G8, G16–G22 — recorded in `spec/plan.md` §5 and folded into `requirements.md` §10.1.
+    
+    ## Gmail MCP connector (Q6)
+    The real server is the Gmail MCP connector: `create_draft(to: [str], subject, body)` returning `id`, `threadId`, `viewUrl`. `to_as_list` now defaults to `true` (G20), `viewUrl` is the preferred link (G21), and the adapter stays auth-free, pointing at an already-authenticated endpoint that M12's smoke test will confirm (G22).
+    
+    ## Test cases
+    TC-M10-01 … TC-M10-18 in `tests/integration/test_gmail_mcp.py`. An autouse fixture asserts that no fake ever receives `send_message`, `reply` or `forward` (TC-M10-02).
+    
+    ## Gate
+    - `pytest`: 551 passed, 1 skipped
+    - `ruff check`, `ruff format --check`, `mypy --strict actiontrack`: clean
+    - Coverage: `gmail_mcp.py` 95%, `outbox.py` 100%
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+  [tool: Bash] [Open the M11 pull request]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; gh pr create --base main --head feat/m11-followup --title "M11: followup command" --body-file - <<'EOF'
+    Implements [M11 — `followup` command](spec/modules/M11-followup/spec.md).
+    
+    ## Summary
+    - `run_followup` (`actiontrack/services/followup.py`): resolves the owner with M8's `resolve_owner_query`, selects their open items (orphaned excluded by G3, ambiguous excluded by Q5), picks the recipient (stored email, otherwise derived; a first-name-only person fails with exit 2), renders the M9 email and creates **exactly one** draft through `DraftSink.create_draft`. It never changes items.
+    - `--dry-run` prints `To:`, `Subject:`, a blank line and the body to stdout, and never builds the sink.
+    - An MCP failure saves the email to the outbox and raises `DraftNotCreatedError` (exit 3). A `[gmail_mcp]` config error fails before any MCP call and writes no outbox (G25).
+    - A draft returned with no ID or link is still recorded, with `gmail_draft_id` NULL (G24). If the `drafts` insert fails, the error (exit 1) names the draft that was already created (G26).
+    - The email tags each item with the same short ID `list` prints (G23).
+    - `cli.py`: the real `followup <owner> [--dry-run]` replaces the M0 stub. TC-M0-27 (stub command) is retired because no stub is left.
+    
+    ## Gaps confirmed
+    Q5 and G23–G27. They are recorded in `spec/plan.md` §5 and folded into `requirements.md` §9.4, §17 and §19. G27 keeps `ASAP` items as `(no due date)`; showing the raw phrase is future work.
+    
+    ## Test cases
+    TC-M11-01 … TC-M11-18 are in `tests/integration/test_followup.py` (service, with a `RecordingSink`) and `tests/integration/test_cli_followup.py` (CLI exit codes and messages). TC-M11-12 runs the real `GmailMcpDraftSink` against the M10 fake MCP server and asserts that exactly one `create_draft` call was made and no send, reply or forward call.
+    
+    ## Gate
+    - `pytest -m ""`: 580 passed, 1 skipped
+    - `ruff check`, `ruff format --check`, `mypy --strict actiontrack`: clean
+    - Coverage: `services/followup.py` 100%, `cli.py` 99%
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+    EOF
+  [result]:
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/11
+
+  [tool: Bash] [Link PR on the status board, commit, push]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; sed -i 's/| M11 | Draft | ☑ | ☑ | ☑ | — |/| M11 | Draft | ☑ | ☑ | ☑ | [#11](https:\/\/github.com\/mohit-gupta-coditas\/actiontrack-py\/pull\/11) |/' spec/plan.md; grep -n "^| M11 |" spec/plan.md; git commit -qam "M11: link PR #11 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q 2>&1 | tail -1; git log --oneline -3
+  [result]:
+    93:| M11 | Draft | ☑ | ☑ | ☑ | [#11](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/11) |
+    warning: in the working copy of 'spec/modules/M11-followup/spec.md', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'spec/plan.md', LF will be replaced by CRLF the next time Git touches it
+    14e89b7 M11: link PR #11 on the status board
+    0605c2c M11: followup command (owner lookup, draft via MCP, dry-run, outbox fallback)
+    5c37154 M11: confirm Q5 and gaps G23-G27 in the specs
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+M11 is built and open for review as [PR #11](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/11) on `feat/m11-followup`. The full suite passes (580 passed, 1 skipped), ruff and mypy are clean, and coverage is 100% for [followup.py](actiontrack/services/followup.py) and 99% for `cli.py`.
+
+**What `actiontrack followup <owner> [--dry-run]` does**
+- Finds the owner using the same lookup as `list --owner`. If the name matches nobody or several people, it stops with exit 2 and lists the candidates.
+- Collects that person's open and overdue items, leaving out orphaned items and items whose owner is ambiguous.
+- Sends to the person's stored email, or builds `first.last@coditas.com` from their name. If only a first name is known, it fails with exit 2.
+- Creates exactly one Gmail draft and records it in the `drafts` table. It never sends email and never changes item status.
+- `--dry-run` prints the email and makes no Gmail call at all.
+- If Gmail fails, it saves the email to the outbox folder and exits 3.
+
+**Your answers (all recommended options), recorded as Q5 and G23–G27 in [plan.md](spec/plan.md) and the root spec**
+- **Q5:** items with an ambiguous owner are left out.
+- **G23:** the email shows the same short item IDs that `list` prints.
+- **G24:** if the server creates a draft but returns no ID or link, it still counts as created.
+- **G25:** a bad `[gmail_mcp]` setting fails before anything is attempted, with no outbox file.
+- **G26:** if the draft is created but can't be saved to the database, the error (exit 1) includes the draft's link so you know it exists.
+- **G27:** "ASAP" items still show as "(no due date)". Showing the original phrase is listed as future work.
+
+**Tests:** 18 test cases, TC-M11-01 to 18 (5 added for the new decisions). One runs the real Gmail client against the M10 fake server and checks there is exactly one `create_draft` call and no send, reply or forward call.
+
+Two changes go beyond the original spec:
+- The spec's result type had an `outbox_path` field. Instead, a failed draft raises a new `DraftNotCreatedError` that carries the path. When the person has no open items, the result's email and recipient are empty. The M11 spec now describes it this way.
+- The M0 test that checked the "not implemented" placeholder is removed, since `followup` was the last placeholder command. Its entry in the M0 test list is marked retired.
+
+The commits follow the usual three steps: confirm gaps, implement, link the PR on the status board.
+
+
+####################################################################################################
+USER:
+pull ot main
+
+  [tool: Bash] [Check whether PR #11 is merged]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; gh pr view 11 --json state,mergedAt,mergeable -q '.state+" "+(.mergedAt//"")+" "+.mergeable'
+  [result]:
+    MERGED 2026-11-25T19:48:11Z UNKNOWN
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+PR #11 is already merged, so I'll switch to main and pull it.
+
+  [tool: Bash] [Switch to main and fast-forward pull]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; git status --short; git checkout main && git pull --ff-only 2>&1 | tail -3; git log --oneline -4
+  [result]:
+    Your branch is up to date with 'origin/main'.
+    Switched to branch 'main'
+     create mode 100644 actiontrack/services/followup.py
+     create mode 100644 tests/integration/test_cli_followup.py
+     create mode 100644 tests/integration/test_followup.py
+    c0689d2 Merge pull request #11 from mohit-gupta-coditas/feat/m11-followup
+    14e89b7 M11: link PR #11 on the status board
+    0605c2c M11: followup command (owner lookup, draft via MCP, dry-run, outbox fallback)
+    5c37154 M11: confirm Q5 and gaps G23-G27 in the specs
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Your local `main` now matches GitHub and includes the merged M11 PR (#11, merge commit `c0689d2`). There were no uncommitted changes, so nothing was in the way. The `feat/m11-followup` branch is still there; I can delete it if you like.
+
+M12 (end-to-end tests, performance and release) is the last module, whenever you want to start it.
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv12.txt in conversations folder
+
+  [tool: Bash] [Check conversations folder and existing format]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; ls conversations 2>&1 | head; ls; head -40 conversations/conv1.txt 2>/dev/null
+  [result]:
+    conv1.txt
+    conv2.txt
+    conv3.txt
+    conv4.txt
+    conv5.txt
+    README.md
+    actiontrack
+    conversations
+    notes
+    pyproject.toml
+    scripts
+    spec
+    tests
+    uv.lock
+    actiontrack — Conversation 1 (spec & SDD planning)
+    Session: 07eac96f-814b-4807-ae16-5a0afaba949a
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo (spec/).
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    Scenario
+    
+    
+    Your team's meeting notes pile up as markdown files. Action items get lost, and follow-up emails are written late or not at all. You will build a small CLI tool, actiontrack, that reads meeting notes, tracks the action items, and drafts follow-up emails for review.
+    
+    
+    What you build
+    
+    
+    A CLI with four commands:
+    
+    
+    1. actiontrack ingest <folder> parses every .md meeting note in the folder. Each note has
+       a date, attendees and free- appear as lines like - [ ]Priya to send the revised quote by Friday. The tool stores them with owner, task, due
+       date (resolved to a real daurce file and status.
+    2. actiontrack list shows items. Filters: --owner, --status open|done|overdue,
+       --due-before <date>. Overdu
+    ... [13 more lines]
+
+  [tool: Bash] [Inspect the format of a recent export]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; head -12 conversations/conv5.txt; grep -n "^ASSISTANT\|^USER\|^TOOL\|^\[" conversations/conv5.txt | head -20; sed -n 60,110p conversations/conv5.txt
+  [result]:
+    actiontrack — Conversation 5 (M4 item extraction: implement, PR, merge)
+    Session: 4c26c3e8-6b95-48b9-ad03-18e3442b2cb6
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    work on M4
+    
+    
+    9:USER:
+    1093:USER:
+    1113:USER:
+        ... [46 more lines]
+    
+      [tool: Bash] [Read M4 spec, tasks, tests and plan]
+      $ cat spec/modules/M4-item-extraction/*.md && cat spec/plan.md
+      [result]:
+        # M4 — Action Item Extraction
+        
+        | | |
+        |---|---|
+        | **Status** | Draft |
+        | **Depends on** | M1 (`NoteMeta`), M2 (`Roster`), M3 (`extract_due`) |
+        | **Files** | `actiontrack/parsing/items.py` |
+        | **REQ IDs** | REQ-ITEM-01 … 07 |
+        
+        ## 1. Purpose
+        Walk the body lines of a loaded note, detect action items, and split each one into **owner / task / due**. The result is a list of
+        `ParsedItem` plus `LineWarning`s for malformed lines.
+        
+        ## 2. Interface
+        
+        ```python
+        def extract_items(note: NoteMeta, roster: Roster, *, date_order: Literal["DMY", "MDY"] = "DMY"
+                          ) -> tuple[list[ParsedItem], list[LineWarning]]
+        
+        # internal but tested directly
+    ... [26 more lines]
+
+  [tool: Bash] [Look for an export script and session transcripts]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; ls scripts; ls -t ~/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/*.jsonl | head -3
+  [result]:
+    __pycache__
+    trace_check.py
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3.jsonl
+    /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fbcc87aa-8b24-49a1-a21c-d98a23ff3366.jsonl
+
+  [tool: Bash] [Inspect how assistant text and edits are formatted]
+  $ cd "c:/Users/Coditas-Admin/Desktop/actionTracker"; grep -n "ASSISTANT\|\[tool: \(Write\|Edit\|AskUserQuestion\|Read\)" conversations/conv5.txt | head -8; n=$(grep -n "\[tool: Edit" conversations/conv5.txt | head -1 | cut -d: -f1); sed -n "$((n-3)),$((n+16))p" conversations/conv5.txt; n=$(grep -n "\[tool: Write" conversations/conv5.txt | head -1 | cut -d: -f1); sed -n "$n,$((n+8))p" conversations/conv5.txt; tail -30 conversations/conv5.txt
+  [result]:
+    342:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py  (6000 chars — content in repo)
+    397:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py  (1307 chars — content in repo)
+    398:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\test_items.py  (13058 chars — content in repo)
+    455:  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\parsing\conftest.py  (1077 chars — content in repo)
+    629:  [tool: Read] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+    644:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+    650:  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+    813:  [tool: Read] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+        46	_TASK_EDGES = " \t,;:-–—"
+        47
+    
+      [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+      old:     "(?P<conn>:|—|–| - |\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+    )
+      new:     "(?P<conn>:|—|–| - |"  # colon, em dash, en dash, spaced hyphen, or a verb
+        r"\s+(?:to|will|should|must|needs to|is to|to\s+be)\b)\s*(?P<rest>.+)$"
+    )
+      [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py
+      old: _TASK_EDGES = " \t,;:-–—"
+      new: _TASK_EDGES = " \t,;:-–—"
+      [tool: Bash] [Re-run the full quality gate]
+      $ grep -n "draft it" tests/unit/parsing/test_items.py; uv run ruff format . >/dev/null; uv run ruff check . && uv run ruff format --check . && uv run mypy --strict actiontrack && uv run pytest -q --cov=actiontrack.parsing --cov-report=term-missing 2>&1 | tail -15
+      [result]:
+        The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py has been updated successfully.
+    
+      [result] (error):
+        <tool_use_error>No changes to make: old_string and new_string are exactly the same.</tool_use_error>
+    
+      [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py  (6000 chars — content in repo)
+      [result]:
+        File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\parsing\items.py (file state is current in your context — no need to Read it back)
+    
+    
+    ----------------------------------------------------------------------------------------------------
+    CLAUDE:
+    Simplifying the warning closure, then the tests.
+    
+        def tool_summary(name, inp):
+            if name in ("Bash", "PowerShell"):
+                return f"[{inp.get('description', '')}]\n  $ " + short(inp.get("command", ""), 30).replace("\n", "\n    ")
+    ... [26 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+A previous session left an exporter script; I'll reuse it.
+
+  [tool: Bash] [Find earlier exporter scripts]
+  $ ls -t /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/*/scratchpad/export_conv.py 2>/dev/null | head -3
+  [result]:
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/scratchpad/export_conv.py
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/40fa2a55-2010-4d82-bbef-9c8d278b7bbe/scratchpad/export_conv.py
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/fb5f7051-92b3-4b92-956b-4bd9e245f133/scratchpad/export_conv.py
+
+  [tool: Bash] [See what the old script hard-codes]
+  $ OLD=/c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/scratchpad/export_conv.py; grep -n "SESSION\s*=\|Conversation\|sys.argv\|src\s*=" "$OLD" | head
+  [result]:
+    3:src, dst = sys.argv[1], sys.argv[2]
+    4:SESSION = "0bdf4b63-da21-46b6-8c2c-4c976b9b21e3"
+    32:    "actiontrack — Conversation 10 (M9 follow-up email rendering: implement, PR, merge)",
+
+  [tool: Bash] [Export this session to conversations/conv12.txt]
+  $ OLD=/c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/scratchpad/export_conv.py
+    NEW=/c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/fbcc87aa-8b24-49a1-a21c-d98a23ff3366/scratchpad/export_conv.py
+    mkdir -p "$(dirname "$NEW")"
+    sed -e 's/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/fbcc87aa-8b24-49a1-a21c-d98a23ff3366/' -e 's/Conversation 10 (M9 follow-up email rendering: implement, PR, merge)/Conversation 12 (M11 followup command: gaps, implement, PR, merge)/' "$OLD" > "$NEW"
+    cd /c/Users/Coditas-Admin/Desktop/actionTracker && python "$NEW" /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/fbcc87aa-8b24-49a1-a21c-d98a23ff3366.jsonl conversations/conv12.txt && head -6 conversations/conv12.txt && grep -c "^USER:" conversations/conv12.txt && wc -l conversations/conv12.txt && tail -8 conversations/conv12.txt

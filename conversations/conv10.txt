@@ -1,0 +1,1111 @@
+actiontrack — Conversation 10 (M9 follow-up email rendering: implement, PR, merge)
+Session: 0bdf4b63-da21-46b6-8c2c-4c976b9b21e3
+Exported: 2026-11-26
+Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+====================================================================================================
+
+
+####################################################################################################
+USER:
+work on Module 9 use the ask user question tool with your recommendations if there are any gaps
+
+  [tool: Bash] [Survey repository layout and docs]
+  $ ls -a && cat CLAUDE.md 2>/dev/null | head -100 && git log --oneline | head -30 && find . -path ./node_modules -prune -o -path ./.git -prune -o -type f -print | head -100
+  [result]:
+    .
+    ..
+    .coverage
+    .git
+    .gitignore
+    .mypy_cache
+    .pytest_cache
+    .python-version
+    .ruff_cache
+    .venv
+    README.md
+    actiontrack
+    pyproject.toml
+    spec
+    tests
+    uv.lock
+    60eb082 Merge pull request #8 from mohit-gupta-coditas/feat/m8-list-done
+    210187b M8: link PR #8 on the status board
+    2a30ce2 M8: list and done commands (filters, table/JSON output, prefix done)
+    3534fff M8: confirm gaps G3 and G11, settle the overdue marker in the specs
+    96a8bf2 Merge pull request #7 from mohit-gupta-coditas/feat/m7-ingest
+    e09fe59 M7: link PR #7 on the status board
+    1e5ef47 M7: confirm gap G4 in the root spec
+    9dd2c90 M7: ingest command (scan, per-file pipeline, deleted files, regroup, report)
+    7b58e7a Merge pull request #6 from mohit-gupta-coditas/feat/m6-store
+    55af035 M6: confirm gaps G1 and G2 in the root spec
+    73057c2 M6: link PR #6 on the status board
+    3dd8f37 M6: SQLite store (connection, migrations, schema v1, repositories)
+    db29b1e Merge pull request #5 from mohit-gupta-coditas/feat/m5-dedup
+    3e494b8 M5: link PR #5 on the status board
+    0168eb3 M5: dedup & item IDs (normalization, exact/fuzzy grouping, merged fields, ID prefixes)
+    9e129b8 Merge pull request #4 from mohit-gupta-coditas/feat/m4-item-extraction
+    ae8ba25 M4: link PR #4 on the status board
+    4e306ba M4: action item extraction (checkbox detection, owner split, due removal, task assembly)
+    64e2287 Merge pull request #3 from mohit-gupta-coditas/feat/m3-dates
+    f26ab9d M3: link PR #3 on the status board
+    49ef3a3 Merge pull request #2 from mohit-gupta-coditas/feat/m2-people
+    37aa031 M3: due-date extraction & resolution (phrase detection, relative rules, calendar dates, user dates)
+    83c0dd6 M2: link PR #2 on the status board
+    eb52c66 M2: people & owner resolution (attendee parsing, roster, owner rules, email derivation)
+    ... [62 more lines]
+
+  [tool: Bash] [List project source, spec and test files]
+  $ find spec actiontrack tests -type f -not -path '*__pycache__*' | sort && cat README.md | head -80
+  [result]:
+    actiontrack/__init__.py
+    actiontrack/__main__.py
+    actiontrack/cli.py
+    actiontrack/clock.py
+    actiontrack/config.py
+    actiontrack/console.py
+    actiontrack/dedup.py
+    actiontrack/errors.py
+    actiontrack/models.py
+    actiontrack/parsing/__init__.py
+    actiontrack/parsing/dates.py
+    actiontrack/parsing/items.py
+    actiontrack/parsing/note_loader.py
+    actiontrack/parsing/people.py
+    actiontrack/services/__init__.py
+    actiontrack/services/ingest.py
+    actiontrack/services/query.py
+    actiontrack/store/__init__.py
+    actiontrack/store/db.py
+    actiontrack/store/migrations/0001_init.sql
+    actiontrack/store/repo.py
+    spec/modules/M0-foundation/spec.md
+    spec/modules/M0-foundation/tasks.md
+    spec/modules/M0-foundation/tests.md
+    spec/modules/M1-note-loader/spec.md
+    spec/modules/M1-note-loader/tasks.md
+    spec/modules/M1-note-loader/tests.md
+    spec/modules/M10-gmail-mcp/spec.md
+    spec/modules/M10-gmail-mcp/tasks.md
+    spec/modules/M10-gmail-mcp/tests.md
+    spec/modules/M11-followup/spec.md
+    spec/modules/M11-followup/tasks.md
+    spec/modules/M11-followup/tests.md
+    spec/modules/M12-e2e-release/spec.md
+    spec/modules/M12-e2e-release/tasks.md
+    spec/modules/M12-e2e-release/tests.md
+    spec/modules/M2-people/spec.md
+    spec/modules/M2-people/tasks.md
+    spec/modules/M2-people/tests.md
+    spec/modules/M3-dates/spec.md
+    ... [74 more lines]
+
+  [tool: Bash] [Read Module 9 spec, tasks and tests]
+  $ cat spec/modules/M9-email-render/spec.md spec/modules/M9-email-render/tasks.md spec/modules/M9-email-render/tests.md
+  [tool: Bash] [Read implementation plan]
+  $ cat spec/plan.md
+  [result]:
+    # M9 — Follow-up Email Rendering
+    
+    | | |
+    |---|---|
+    | **Status** | Draft |
+    | **Depends on** | M0 |
+    | **Files** | `actiontrack/email/render.py`, `actiontrack/templates/followup.txt.j2` |
+    | **REQ IDs** | REQ-FU-04 |
+    
+    ## 1. Purpose
+    Render the follow-up email for one person from their open and overdue items. The output is **deterministic**: the same inputs
+    give the same bytes (D5). No LLM, no I/O apart from loading the packaged template.
+    
+    ## 2. Interface
+    
+    ```python
+    @dataclass(frozen=True)
+    class EmailItem:
+        short_id: str; task: str; due_date: date | None
+        meeting_title: str | None; meeting_date: date        # most recent source
+    
+    @dataclass(frozen=True)
+    class RenderedEmail:
+        subject: str; body: str
+    
+    def render_followup(*, first_name: str, overdue: Sequence[EmailItem], open_: Sequence[EmailItem],
+                        today: date, sign_off: str) -> RenderedEmail
+    ```
+    `overdue` and `open_` are already split by the caller (M11). Both may not be empty at once (the caller guarantees it, and
+    `ValueError` is raised otherwise).
+    
+    ## 3. Subject
+    `Follow-up: your open action items (N open, M overdue)`, where N = `len(open_)` (not overdue) and M = `len(overdue)` (gap G7).
+    - Pluralisation is fixed ("1 open, 1 overdue" reads fine in both).
+    - If M == 0 → `Follow-up: your open action items (N open)`.
+    
+    ## 4. Body (plain text, `followup.txt.j2`)
+    
+    ```
+    Hi {{ first_name }},
+    ... [50 more lines]
+
+  [result]:
+    # actiontrack — Implementation Plan (Spec-Driven Development)
+    
+    | | |
+    |---|---|
+    | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
+    | **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7 and M8 done |
+    | **Date** | 2026-11-25 |
+    
+    ---
+    
+    ## 1. How we work
+    
+    Every module goes through the same steps, in this order:
+    
+    1. **Spec**: `modules/<M>/spec.md` is reviewed and marked *Approved*. Any change to the root spec is made there first.
+    2. **Tests (red)**: every test case in `modules/<M>/tests.md` is written as a pytest test whose name contains its TC ID
+       (e.g. `test_TC_M3_04_weekday_same_day_rolls_to_next_week`). They all fail.
+    3. **Implement (green)**: work through `modules/<M>/tasks.md` in order, ticking tasks off as they pass.
+    4. **Gate**: the module's Definition of Done (below) passes. Update the status board in §4.
+    5. **Merge**: branch `feat/<m-id>-<name>` → PR → `main`. The PR description links the module spec and lists its TC IDs.
+    
+    ### Definition of Done (every module)
+    - All TCs in the module's `tests.md` are implemented and passing.
+    - `ruff check`, `ruff format --check` and `mypy --strict actiontrack` are clean.
+    - Line coverage of the module's package is ≥ 90% for the pure modules (M1–M5, M9), and ≥ 80% for the others.
+    - No public interface differs from the spec. If it had to, the spec was updated first (in the same PR).
+    - Every REQ ID the module owns appears in at least one TC.
+    
+    ### Conventions
+    - **IDs**: requirements `REQ-<AREA>-NN` (root spec §18) · modules `M0`–`M12` · tasks `T<m>.<n>` · test cases `TC-M<m>-NN`.
+    - **Test locations**: `tests/unit/<package>/` for unit tests, `tests/integration/` for anything that touches SQLite, the file system or MCP,
+      `tests/e2e/` for M12. Shared fixtures live in `tests/fixtures/notes/<scenario>/`.
+    - **Markers**: `@pytest.mark.slow` for perf/e2e. The default `pytest` run excludes slow tests, and CI runs everything.
+    - **Time**: tests never read the real clock. They use `FixedClock` (M0).
+    
+    ## 2. Modules
+    
+    | ID | Module | Package / files | Depends on | REQ IDs owned |
+    |---|---|---|---|---|
+    | [M0](modules/M0-foundation/spec.md) | Foundation | `pyproject.toml`, `cli.py` skeleton, `config.py`, `models.py`, `errors.py`, `clock.py`, `console.py`, `__main__.py` | — | CLI-01..07, CLI-09, CLI-10 |
+    ... [16 more lines]
+
+  [tool: Bash] [Check packaging and follow-up requirements]
+  $ cat pyproject.toml && grep -n -i -E 'follow|email|jinja|template|FU-0|sign' spec/requirements.md | head -80 && git show 3534fff --stat && git show 3534fff -- spec/requirements.md | head -80
+  [result]:
+    [project]
+    name = "actiontrack"
+    dynamic = ["version"]
+    description = "Extract, track and follow up on action items from meeting notes."
+    readme = "README.md"
+    requires-python = ">=3.11"
+    dependencies = [
+        "typer>=0.12",
+        "rich>=13.7",
+        "platformdirs>=4.2",
+        "pyyaml>=6.0",
+        "dateparser>=1.2",
+        "rapidfuzz>=3.9",
+        "jinja2>=3.1",
+        "mcp>=1.0",
+    ]
+    
+    [project.scripts]
+    actiontrack = "actiontrack.cli:main"
+    
+    [dependency-groups]
+    dev = [
+        "pytest>=8.0",
+        "pytest-cov>=5.0",
+        "ruff>=0.6",
+        "mypy>=1.11",
+        "types-PyYAML",
+        "types-dateparser>=1.4.3.20261122",
+    ]
+    
+    [build-system]
+    requires = ["hatchling"]
+    build-backend = "hatchling.build"
+    
+    [tool.hatch.version]
+    path = "actiontrack/__init__.py"
+    
+    [tool.hatch.build.targets.wheel]
+    packages = ["actiontrack"]
+    
+    ... [49 more lines]
+
+  [tool: Bash] [Read followup requirements and M11 spec]
+  $ sed -n 285,300p spec/requirements.md && sed -n 345,356p spec/requirements.md && sed -n 430,440p spec/requirements.md && sed -n 465,476p spec/requirements.md && cat spec/modules/M11-followup/spec.md | head -60 && ls actiontrack/services && sed -n 1,60p actiontrack/services/query.py
+  [result]:
+    ### 9.4 `actiontrack followup <owner>`
+    1. Resolves the owner (same rules as `--owner`). An ambiguous or unknown owner → error, no draft.
+    2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3). If there are none → message, no draft.
+    3. Resolves the recipient (D13):
+       - the email from any attendees entry for this person, **or**
+       - `firstname.lastname@coditas.com`, derived from the full name (lowercased, accents removed, spaces/hyphens in multi-part
+         names joined with `.`, e.g. `Anna Maria Lopez` → `anna.maria.lopez@coditas.com`). *(Assumption about multi-part names; confirm.)*
+       - Only a first name known → error `cannot derive email: no last name for "Priya"`.
+       - The domain comes from config (`email.domain`, default `coditas.com`).
+    4. Renders the email from a Jinja2 template (`templates/followup.md.j2`):
+       - Subject: `Follow-up: your open action items (N open, M overdue)`
+       - Body: greeting, an **Overdue** section and then an **Open** section, each item with its task, due date and source meeting
+         (title + date), and a sign-off.
+    5. `--dry-run` prints the rendered email and does not call MCP.
+    6. Otherwise it calls the Gmail MCP `create_draft` tool and prints the draft ID/link, then records a row in `drafts`.
+    7. **It never sends** (see §10.2).
+    │   └── repo.py          # ItemRepo, NoteRepo, PeopleRepo
+    ├── services/
+    │   ├── ingest.py        # orchestrates loader → parser → dedup → repo; builds report
+    │   ├── query.py         # list filters, overdue derivation
+    │   └── followup.py      # select items, render template, call DraftSink
+    ├── email/
+    │   ├── render.py        # Jinja2 rendering
+    │   └── gmail_mcp.py     # MCP client adapter (allowlisted create_draft only)
+    └── templates/followup.md.j2
+    ```
+    
+    **Layering rules**
+      - config: `user_config_dir("actiontrack")/config.toml` (e.g. `%APPDATA%\actiontrack\config.toml` on Windows, `~/.config/actiontrack/` on Linux)
+      - data (DB, outbox): `user_data_dir("actiontrack")`
+    - `actiontrack config show` prints the effective config and where each value came from (useful for debugging).
+    - Secrets are never stored by the CLI (MCP server auth is handled by the server).
+    
+    ### 13.7 Performance
+    - `list`, `done` and `--help` start in under 300 ms. Heavy imports (`dateparser`, `rapidfuzz`, `mcp`, `jinja2`) are
+      **imported lazily** inside the commands that need them.
+    - `ingest` streams files one at a time and does not load the whole folder into memory. The SQLite indexes used are
+      `items(owner_key)`, `items(status, due_date)` and `item_sources(note_path)`.
+    
+    
+    ... [46 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I've read the M9 spec, tests and plan, and compared them with the root requirements. There are four gaps to settle before I write the tests:
+
+  [tool: AskUserQuestion] {"questions": [{"question": "Gap G7: in the email subject 'Follow-up: your open action items (N open, M overdue)', what should N count? Right now TC-M9-02 expects '(3 open, 2 overdue)' when there are 3 open and 2 overdue items.", "header": "G7 subject N", "multiSelect": false, "options": [{"label": "Not overdue (Recommended)", "description": "N = open items that are not overdue, so the total is N + M. This matches the M9 spec and TCs as written. Confirm G7 in the root spec."}, {"label": "All open", "description": "N = all open items, including the overdue ones, so TC-M9-02 becomes '(5 open, 2 
+... [truncated, 1710 more chars]
+  [result]:
+    Your questions have been answered: "Gap G7: in the email subject 'Follow-up: your open action items (N open, M overdue)', what should N count? Right now TC-M9-02 expects '(3 open, 2 overdue)' when there are 3 open and 2 overdue items."="Not overdue (Recommended)", "Template name and format: the root spec (§9.4 and §11) says `templates/followup.md.j2`, but the M9 spec says plain text `followup.txt.j2`. Which one should we use?"="followup.txt.j2 (Recommended)", "What should render_followup do with an 'overdue' item that has no due date, or whose due date is today or later? The spec doesn't say, and days overdue would be undefined, 0 or negative."="Raise ValueError (Recommended)", "The spec says no line may end with whitespace. A sign_off from config or a task could still contain trailing spaces. How should we enforce the rule?"="Strip after rendering (Recommended)". You can now continue with these answers in mind.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All four answers match my recommendations. Next I'll create the branch, update the specs, and then follow the test-first flow. First I'll look at the existing code style.
+
+  [tool: Bash] [Create branch and inspect code/test style]
+  $ git checkout -b feat/m9-email-render && sed -n 1,50p tests/unit/test_dedup.py && cat tests/unit/conftest.py && sed -n 1,40p actiontrack/dedup.py && grep -n "import" actiontrack/parsing/dates.py | head -20 && cat actiontrack/__init__.py && sed -n 1,40p actiontrack/config.py
+  [result]:
+    Switched to a new branch 'feat/m9-email-render'
+    from __future__ import annotations
+    
+    import dataclasses
+    import hashlib
+    import random
+    import sys
+    from datetime import date, datetime
+    from pathlib import Path
+    
+    import pytest
+    
+    from actiontrack.dedup import (
+        DedupConfig,
+        DedupResult,
+        group_items,
+        make_item_id,
+        normalize_task,
+        resolve_prefix,
+        shortest_unique_prefixes,
+    )
+    from actiontrack.errors import UserInputError
+    from actiontrack.models import ExistingItem, Flag, ParsedItem
+    from tests.unit.conftest import owner, src
+    
+    PRIYA = "priya.shah@coditas.com"
+    RAHUL = "rahul.mehta@coditas.com"
+    DEFAULT = DedupConfig()
+    
+    
+    def group(
+        *sources: ParsedItem, cfg: DedupConfig = DEFAULT, existing: tuple[ExistingItem, ...] = ()
+    ) -> DedupResult:
+        return group_items(list(sources), list(existing), cfg)
+    
+    
+    def stub(scores: dict[frozenset[str], float]) -> DedupConfig:
+        """A config whose scorer looks pairs up in `scores` (order-insensitive), 0 otherwise."""
+        return DedupConfig(scorer=lambda a, b: scores.get(frozenset({a, b}), 0.0))
+    
+    ... [94 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the spec updates: confirm G7, rename the template in the root spec, and record the three new gaps.
+
+  [tool: Bash] [Update root spec template name and G7]
+  $ python - <<'EOF'
+    import re,io
+    p='spec/requirements.md'
+    s=open(p,encoding='utf-8').read()
+    s=s.replace("4. Renders the email from a Jinja2 template (`templates/followup.md.j2`):\n   - Subject: `Follow-up: your open action items (N open, M overdue)`\n",
+    "4. Renders the email from a plain-text Jinja2 template (`templates/followup.txt.j2`):\n   - Subject: `Follow-up: your open action items (N open, M overdue)`, where N counts the open items that are **not**\n     overdue, so the total is N + M (G7). With no overdue items it is `(N open)`.\n")
+    s=s.replace("└── templates/followup.md.j2","└── templates/followup.txt.j2")
+    open(p,'w',encoding='utf-8',newline='').write(s)
+    EOF
+    git diff --stat; grep -n "followup\.\(md\|txt\)" -r spec
+  [result]:
+    warning: in the working copy of 'spec/requirements.md', LF will be replaced by CRLF the next time Git touches it
+     spec/requirements.md | 7 ++++---
+     1 file changed, 4 insertions(+), 3 deletions(-)
+    spec/modules/M9-email-render/spec.md:7:| **Files** | `actiontrack/email/render.py`, `actiontrack/templates/followup.txt.j2` |
+    spec/modules/M9-email-render/spec.md:37:## 4. Body (plain text, `followup.txt.j2`)
+    spec/modules/M9-email-render/tasks.md:6:- [ ] **T9.2 `followup.txt.j2`** template + package data included in the wheel (`hatch` include).
+    spec/plan.md:49:| [M9](modules/M9-email-render/spec.md) | Follow-up email rendering | `email/render.py`, `templates/followup.txt.j2` | M0 | FU-04 |
+    spec/requirements.md:294:4. Renders the email from a plain-text Jinja2 template (`templates/followup.txt.j2`):
+    spec/requirements.md:354:└── templates/followup.txt.j2
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Next, the M9 spec, tests and tasks, plus the gap table in the plan.
+
+  [tool: Bash] [Update M9 spec, tests, tasks and plan gaps]
+  $ python - <<'EOF'
+    def edit(p, pairs):
+        s=open(p,encoding='utf-8').read()
+        for a,b in pairs:
+            assert a in s, (p,a)
+            s=s.replace(a,b)
+        open(p,'w',encoding='utf-8',newline='').write(s)
+    
+    edit('spec/modules/M9-email-render/spec.md', [
+    ("`overdue` and `open_` are already split by the caller (M11). Both may not be empty at once (the caller guarantees it, and\n`ValueError` is raised otherwise).",
+     "`overdue` and `open_` are already split by the caller (M11). Both may not be empty at once (the caller guarantees it, and\n`ValueError` is raised otherwise). Every `overdue` item must have a `due_date` strictly before `today`, otherwise `ValueError`\n(a caller bug, G13)."),
+    ("`Follow-up: your open action items (N open, M overdue)`, where N = `len(open_)` (not overdue) and M = `len(overdue)` (gap G7).",
+     "`Follow-up: your open action items (N open, M overdue)`, where N = `len(open_)` (not overdue) and M = `len(overdue)` (G7 ✅)."),
+    ("- Line endings `\\n`. No trailing whitespace on any line.",
+     "- Line endings `\\n`. No trailing whitespace on any line: after rendering, every line is right-stripped and the body ends with\n  exactly one `\\n`, so trailing spaces in `sign_off` or a task cannot leak through (G14). Nothing else is changed."),
+    ("## 6. Open questions\nG7 (meaning of N) needs confirming.",
+     "## 6. Open questions\nNone. G7 (meaning of N), G12 (template name), G13 (invalid overdue item) and G14 (trailing whitespace) were confirmed with M9."),
+    ])
+    edit('spec/modules/M9-email-render/tests.md', [
+    ("| TC-M9-12 | Task containing `{{ x }}` and `<b>` | `render_followup` | Rendered literally (no template injection, no escaping) | REQ-FU-04 |",
+     "| TC-M9-12 | Task containing `{{ x }}` and `<b>` | `render_followup` | Rendered literally (no template injection, no escaping) | REQ-FU-04 |\n"
+     "| TC-M9-13 | An overdue item with `due_date=None`, or with a due date of today or later | `render_followup` | `ValueError` (G13) | REQ-FU-04 |\n"
+     "| TC-M9-14 | `sign_off` and a task with trailing spaces | `render_followup` | No line ends with whitespace. The text is otherwise unchanged (G14) | REQ-FU-04 |"),
+    ])
+    edit('spec/modules/M9-email-render/tasks.md', [
+    ("TC-M9-01 … TC-M9-12.", "TC-M9-01 … TC-M9-14."),
+    ("(`hatch` include).", "(hatchling ships every file under `actiontrack/`; check the built wheel)."),
+    ("lazy import. → TC-M9-01 … 09", "lazy import, overdue validation. → TC-M9-01 … 09, 13"),
+    ("→ TC-M9-10 … 12", "→ TC-M9-10 … 12, 14"),
+    ])
+    ... [12 more lines]
+  [result]:
+    Traceback (most recent call last):
+      File "<stdin>", line 8, in <module>
+      File "<stdin>", line 4, in edit
+    AssertionError: ('spec/modules/M9-email-render/spec.md', '- Line endings `\n`. No trailing whitespace on any line.')
+
+  [tool: Bash] [Inspect exact bytes of line endings line]
+  $ grep -n "Line endings" spec/modules/M9-email-render/spec.md | cat -A | head; file spec/modules/M9-email-render/*.md spec/plan.md
+  [result]:
+    62:- Line endings `\n`. No trailing whitespace on any line.$
+    spec/modules/M9-email-render/spec.md:  Unicode text, UTF-8 text, with CRLF line terminators
+    spec/modules/M9-email-render/tasks.md: Unicode text, UTF-8 text, with CRLF line terminators
+    spec/modules/M9-email-render/tests.md: Unicode text, UTF-8 text, with CRLF line terminators
+    spec/plan.md:                          Unicode text, UTF-8 text, with very long lines (416), with CRLF line terminators
+
+  [tool: Bash] [Debug byte content of spec line]
+  $ python -c "
+    s=open('spec/modules/M9-email-render/spec.md','rb').read()
+    i=s.find(b'Line endings'); print(repr(s[i-5:i+60])); print(s.count(b'\r\n'), s.count(b'\n'))
+    "; git config core.autocrlf
+  [result]:
+    b'.\r\n- Line endings `\\n`. No trailing whitespace on any line.\r\n\r\n##'
+    68 68
+    true
+
+  [tool: Write] C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\0bdf4b63-da21-46b6-8c2c-4c976b9b21e3\scratchpad\specedit.py  (3624 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\0bdf4b63-da21-46b6-8c2c-4c976b9b21e3\scratchpad\specedit.py (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Apply spec edits and review diff]
+  $ python "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/scratchpad/specedit.py" && git diff --stat && git diff spec/plan.md | head -40
+  [result]:
+    spec/modules/M9-email-render/spec.md  | 10 ++++++----
+     spec/modules/M9-email-render/tasks.md |  8 ++++----
+     spec/modules/M9-email-render/tests.md |  2 ++
+     spec/plan.md                          |  7 +++++--
+     spec/requirements.md                  |  7 ++++---
+     5 files changed, 21 insertions(+), 13 deletions(-)
+    diff --git a/spec/plan.md b/spec/plan.md
+    index 49eb688..71fa9fc 100644
+    --- a/spec/plan.md
+    +++ b/spec/plan.md
+    @@ -97,7 +97,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
+     
+     These came up while writing the module specs. Each has a **proposed resolution**, which the module specs already assume.
+     Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
+    -(root spec §6, §8), G4 with M7 (root spec §9.1), and G3 and G11 with M8 (root spec §9.2, §9.4).
+    +(root spec §6, §8), G4 with M7 (root spec §9.1), G3 and G11 with M8 (root spec §9.2, §9.4), and G7, G12, G13 and G14 with M9 (root spec §9.4, §11).
+     
+     | # | Gap | Proposed resolution | Affects |
+     |---|---|---|---|
+    @@ -107,11 +107,14 @@ Once a gap is confirmed, the root spec is updated and the gap is marked resolved
+     | G4 ✅ | A note file that was deleted from the folder | Its sources are removed and its items become `orphaned`. Only files under the scanned root are affected, so ingesting a different folder orphans nothing | M7 |
+     | G5 | A single-token owner that is not in the attendees (`Vikram to …`) | `owner_key = NULL`, flags `owner_not_attendee` + `unassigned`, `owner_raw` kept. A full name gets a derived key | M2, M4 |
+     | G6 | Meaning of `next Friday` (said on a Wednesday) | The occurrence in the **following calendar week** (Mon-start). `this Friday` / `Friday` = the next occurrence strictly after | M3 |
+    -| G7 | In the subject `N open, M overdue`, does N include the overdue items? | N = open items that are **not** overdue. Total = N + M | M9 |
+    +| G7 ✅ | In the subject `N open, M overdue`, does N include the overdue items? | N = open items that are **not** overdue. Total = N + M | M9 |
+     | G8 | The Gmail MCP server's `create_draft` argument names/shapes are unknown (Q6) | Configurable argument mapping (`arg_names`, `to_as_list`), validated against the tool's `inputSchema` | M10 |
+     | G9 | `ASAP` as a due phrase | Recognised. `due_date` NULL, flag `unparsed_due`, `due_raw = "ASAP"` | M3 |
+     | G10 | The same person appears with an explicit email in one note and a derived email in another | Known limitation: two keys. Future work: `people.yaml` aliases | M2 |
+     | G11 ✅ | An owner written as a full name who is not an attendee (G5) gets a derived key, but only attendees are stored in `people`, so `--owner` / `followup` could not find them | `PeopleRepo.find` also matches item owners missing from `people` (name = `owner_display`, email = the key if it is an email). Read-only: no schema or ingest change | M6, M8, M11 |
+    +| G12 ✅ | The root spec names the template `followup.md.j2`, and the M9 spec names it plain-text `followup.txt.j2` | `templates/followup.txt.j2` (plain text). The root spec is renamed | M9 |
+    +| G13 ✅ | An `overdue` item passed to the renderer with no due date, or one not before `today` | `render_followup` raises `ValueError` (a caller bug, like both sections being empty) | M9, M11 |
+    +| G14 ✅ | A `sign_off` or task with trailing spaces breaks "no trailing whitespace" | Every rendered line is right-stripped, and the body ends with exactly one `\n` | M9 |
+     
+     ## 6. Traceability check (run before each PR)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The paragraph line in plan.md got too long, so I'll rewrap it and then commit the spec changes.
+
+  [tool: Bash] [Rewrap plan line and commit spec updates]
+  $ python -c "
+    p='spec/plan.md'; s=open(p,encoding='utf-8').read()
+    a='G3 and G11 with M8 (root spec §9.2, §9.4), and G7'
+    assert a in s
+    s=s.replace(a,'G3 and G11 with M8 (root spec §9.2, §9.4),\nand G7')
+    open(p,'w',encoding='utf-8',newline='\r\n').write(s)" && git diff spec/modules/M9-email-render/spec.md && git add spec && git commit -q -F - <<'EOF'
+    M9: confirm gaps G7, G12, G13 and G14 in the specs
+    
+    - requirements.md §9.4: the subject's N counts open items that are not overdue (G7); the
+      template is plain-text `templates/followup.txt.j2` (G12, also §11).
+    - plan.md: G7 resolved; new gaps G12 (template name), G13 (invalid overdue item → ValueError)
+      and G14 (rendered lines right-stripped) recorded and resolved.
+    - M9 spec/tests/tasks: overdue validation and whitespace normalisation, TC-M9-13 and TC-M9-14.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git log --oneline -1
+  [result]:
+    diff --git a/spec/modules/M9-email-render/spec.md b/spec/modules/M9-email-render/spec.md
+    index 201300f..a53edc8 100644
+    --- a/spec/modules/M9-email-render/spec.md
+    +++ b/spec/modules/M9-email-render/spec.md
+    @@ -27,10 +27,11 @@ def render_followup(*, first_name: str, overdue: Sequence[EmailItem], open_: Seq
+                         today: date, sign_off: str) -> RenderedEmail
+     ```
+     `overdue` and `open_` are already split by the caller (M11). Both may not be empty at once (the caller guarantees it, and
+    -`ValueError` is raised otherwise).
+    +`ValueError` is raised otherwise). Every `overdue` item must have a `due_date` strictly before `today`, otherwise `ValueError`
+    +(a caller bug, G13).
+     
+     ## 3. Subject
+    -`Follow-up: your open action items (N open, M overdue)`, where N = `len(open_)` (not overdue) and M = `len(overdue)` (gap G7).
+    +`Follow-up: your open action items (N open, M overdue)`, where N = `len(open_)` (not overdue) and M = `len(overdue)` (G7 ✅).
+     - Pluralisation is fixed ("1 open, 1 overdue" reads fine in both).
+     - If M == 0 → `Follow-up: your open action items (N open)`.
+     
+    @@ -59,10 +60,11 @@ Could you reply with an update, or let me know if any of these should be reassig
+     - Dates are in ISO format (`2026-11-20`). `days` = `(today - due).days`, with "day" singular when it is 1.
+     - The Jinja environment: `StrictUndefined`, `autoescape=False`, `trim_blocks=True`, `lstrip_blocks=True`, `keep_trailing_newline=True`.
+       The template is loaded with `PackageLoader("actiontrack", "templates")`. Jinja is lazily imported.
+    -- Line endings `\n`. No trailing whitespace on any line.
+    +- Line endings `\n`. No trailing whitespace on any line: after rendering, every line is right-stripped and the body ends with
+    +  exactly one `\n`, so trailing spaces in `sign_off` or a task cannot leak through (G14). Nothing else is changed.
+     
+     ## 5. Out of scope
+     Recipient resolution, MCP (M10/M11).
+     
+     ## 6. Open questions
+    -G7 (meaning of N) needs confirming.
+    +None. G7 (meaning of N), G12 (template name), G13 (invalid overdue item) and G14 (trailing whitespace) were confirmed with M9.
+    06106ab M9: confirm gaps G7, G12, G13 and G14 in the specs
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Spec commit is done. While writing the `mixed.txt` snapshot by hand I found one more gap in the template wording:
+
+  [tool: AskUserQuestion] {"questions": [{"question": "The M9 template line for an open item is `- {{ task }} (due {{ due or \"no due date\" }}) [{{ short_id }}]`. Taken literally, an undated item renders as '- Update the docs page (due no due date) [e5f6]'. What wording should an undated open item use?", "header": "No-due text", "multiSelect": false, "options": [{"label": "(no due date) (Recommended)", "description": "'- Update the docs page (no due date) [e5f6]'. Dated items still read '(due 2026-11-28)'. Fix the spec's template line to match."}, {"label": "(due no due date)", "description": "Keep the spec template e
+... [truncated, 40 more chars]
+  [result]:
+    Your questions have been answered: "The M9 template line for an open item is `- {{ task }} (due {{ due or "no due date" }}) [{{ short_id }}]`. Taken literally, an undated item renders as '- Update the docs page (due no due date) [e5f6]'. What wording should an undated open item use?"="(no due date) (Recommended)". You can now continue with these answers in mind.
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll go with "(no due date)" and fix the spec line. Now the failing tests and the hand-written snapshots. First I'll check how earlier modules tested lazy imports:
+
+  [tool: Bash] [Find existing lazy import test pattern]
+  $ grep -n -B3 -A12 "sys.modules" tests/unit/test_dedup.py tests/unit/parsing/test_dates.py | head -50; cat .gitignore
+  [result]:
+    tests/unit/test_dedup.py-203-
+    tests/unit/test_dedup.py-204-
+    tests/unit/test_dedup.py-205-def test_rapidfuzz_is_imported_lazily(monkeypatch: pytest.MonkeyPatch) -> None:
+    tests/unit/test_dedup.py:206:    monkeypatch.setitem(sys.modules, "rapidfuzz", None)  # any import of it now fails
+    tests/unit/test_dedup.py-207-    r = group(
+    tests/unit/test_dedup.py-208-        src(PRIYA, "a", "2026-11-04"),
+    tests/unit/test_dedup.py-209-        src(PRIYA, "b", "2026-11-04", 2),
+    tests/unit/test_dedup.py-210-        cfg=DedupConfig(fuzzy_enabled=False),
+    tests/unit/test_dedup.py-211-    )
+    tests/unit/test_dedup.py-212-    assert len(r.groups) == 2
+    tests/unit/test_dedup.py-213-
+    tests/unit/test_dedup.py-214-
+    tests/unit/test_dedup.py-215-# --- merged fields ---------------------------------------------------------------------------
+    tests/unit/test_dedup.py-216-
+    tests/unit/test_dedup.py-217-
+    tests/unit/test_dedup.py-218-def test_TC_M5_13_latest_due_and_seen_dates() -> None:
+    __pycache__/
+    *.py[cod]
+    .venv/
+    .pytest_cache/
+    .mypy_cache/
+    .ruff_cache/
+    .coverage
+    coverage.xml
+    htmlcov/
+    dist/
+    build/
+    *.egg-info/
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now I'll write the test module and the three snapshots by hand from the spec.
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\snapshots\mixed.txt  (618 chars — content in repo)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\snapshots\open_only.txt  (357 chars — content in repo)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\snapshots\overdue_only.txt  (388 chars — content in repo)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\__init__.py  (0 chars — content in repo)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\.gitattributes  (126 chars — content in repo)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\test_render.py  (5731 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\snapshots\mixed.txt (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\snapshots\open_only.txt (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\snapshots\overdue_only.txt (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\__init__.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\.gitattributes (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\test_render.py (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll tidy two spots in the tests: the TC-M9-14 assertions were sloppy, and the TC-M9-11 parametrize rendered at collection time.
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\test_render.py
+  old:     body = render([], [item("e5f6", "Padded task  ", None)], sign_off="Thanks,  \nMohit \t").body
+    assert "- Padded task   (no due date) [e5f6]\n" not in body  # sanity: task stays inline
+    assert "- Padded task   (no due date)" not in body or True
+    assert body.endswith("\nThanks,\nMohit\n")
+  new:     body = render([], [item("e5f6", "Padded task  ", None)], sign_off="Thanks,  \nMohit \t").body
+    assert "- Padded task   (no due date) [e5f6]\n" in body  # inner spaces are left alone
+    assert body.endswith("\n\nThanks,\nMohit\n")
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\test_render.py
+  old: @pytest.mark.parametrize(
+    "email",
+    [mixed(), render([], [DOCS]), render([VENUE], [])],
+    ids=["mixed", "open_only", "overdue_only"],
+)
+def test_TC_M9_11_no_trailing_whitespace_single_final_newline(email: RenderedEmail) -> None:
+    assert all
+  new: @pytest.mark.parametrize(
+    "build",
+    [mixed, lambda: render([], [DOCS]), lambda: render([VENUE], [])],
+    ids=["mixed", "open_only", "overdue_only"],
+)
+def test_TC_M9_11_no_trailing_whitespace_single_final_newline(
+    build: Callable[[], RenderedEmail],
+) -> None:
+    email = build()
+    ass
+... [1 more lines]
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\test_render.py
+  old: import sys
+from datetime import date
+  new: import sys
+from collections.abc import Callable
+from datetime import date
+  [tool: Bash] [Run new tests to confirm red]
+  $ .venv/Scripts/python -m pytest tests/unit/email -q 2>&1 | tail -5
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\test_render.py has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\test_render.py has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\tests\unit\email\test_render.py has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [result]:
+    E   ModuleNotFoundError: No module named 'actiontrack.email'
+    =========================== short test summary info ===========================
+    ERROR tests/unit/email/test_render.py
+    !!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+    1 error in 0.60s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The tests fail as expected. Now the implementation. First I'll check how the existing subpackage `__init__` files look:
+
+  [tool: Bash] [Show subpackage init files]
+  $ for f in actiontrack/*/__init__.py; do echo "== $f"; cat $f; done
+  [result]:
+    == actiontrack/parsing/__init__.py
+    """Turning meeting-note files into structured data (M1-M4)."""
+    == actiontrack/services/__init__.py
+    """Command use cases that tie parsing, dedup and the store together (M7, M8, M11)."""
+    == actiontrack/store/__init__.py
+    """SQLite persistence: connection, migrations and repositories (M6)."""
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Now the package, the template and the renderer:
+
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\__init__.py  (87 chars — content in repo)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\templates\followup.txt.j2  (733 chars — content in repo)
+  [tool: Write] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\render.py  (3229 chars — content in repo)
+  [tool: Bash] [Run M9 tests against implementation]
+  $ printf 'actiontrack/templates/*.j2 text eol=lf\n' >> .gitattributes && .venv/Scripts/python -m pytest tests/unit/email -q 2>&1 | tail -30
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\__init__.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\templates\followup.txt.j2 (file state is current in your context — no need to Read it back)
+
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\render.py (file state is current in your context — no need to Read it back)
+
+  [result]:
+    ....................                                                     [100%]
+    20 passed in 1.35s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+All 20 pass. One fix: `str.splitlines()` also splits on characters like `\x0b` and `\u2028`, which could change task text, so I'll split on `\n` only. Then the quality gate.
+
+  [tool: Edit] C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\render.py
+  old:     lines = [line.rstrip() for line in text.splitlines()]
+  new:     lines = [line.rstrip() for line in text.split("\n")]
+  [tool: Bash] [Run ruff, mypy, full tests with coverage]
+  $ .venv/Scripts/ruff check . ; .venv/Scripts/ruff format --check . ; .venv/Scripts/mypy --strict actiontrack ; .venv/Scripts/python -m pytest -q --cov=actiontrack.email --cov-report=term-missing 2>&1 | tail -15
+  [result]:
+    The file C:\Users\Coditas-Admin\Desktop\actionTracker\actiontrack\email\render.py has been updated successfully. (file state is current in your context — no need to Read it back)
+
+  [result]:
+    All checks passed!
+    76 files already formatted
+    Success: no issues found in 22 source files
+    ........................................................................ [ 55%]
+    ........................................................................ [ 69%]
+    ........................................................................ [ 82%]
+    ........................................................................ [ 96%]
+    .................                                                        [100%]
+    =============================== tests coverage ================================
+    ______________ coverage: platform win32, python 3.12.10-final-0 _______________
+    
+    Name                            Stmts   Miss  Cover   Missing
+    -------------------------------------------------------------
+    actiontrack\email\__init__.py       0      0   100%
+    actiontrack\email\render.py        50      0   100%
+    -------------------------------------------------------------
+    TOTAL                              50      0   100%
+    520 passed, 1 skipped, 1 deselected in 43.70s
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Everything is clean with 100% coverage. Next I'll check that the template actually ships in the wheel:
+
+  [tool: Bash] [Build wheel and list packaged template files]
+  $ OUT="C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/scratchpad/dist" && uv build --wheel -o "$OUT" -q 2>&1 | tail -3; python -c "
+    import zipfile,glob,sys
+    w=sorted(glob.glob(sys.argv[1]+'/*.whl'))[-1]
+    print([n for n in zipfile.ZipFile(w).namelist() if 'template' in n or 'email' in n])" "$OUT"
+  [result]:
+    ['actiontrack/email/__init__.py', 'actiontrack/email/render.py', 'actiontrack/templates/followup.txt.j2']
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+The template ships in the wheel. Now the remaining spec updates: the "(no due date)" wording as G15, ticked tasks, and the status board.
+
+  [tool: Write] C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\0bdf4b63-da21-46b6-8c2c-4c976b9b21e3\scratchpad\specedit2.py  (1938 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\CODITA~1\AppData\Local\Temp\claude\c--Users-Coditas-Admin-Desktop-actionTracker\0bdf4b63-da21-46b6-8c2c-4c976b9b21e3\scratchpad\specedit2.py (file state is current in your context — no need to Read it back)
+
+  [tool: Bash] [Apply final spec edits and stage all changes]
+  $ python "C:/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/scratchpad/specedit2.py" && git add -A && git status --short && git diff --cached --stat
+  [result]:
+    warning: in the working copy of '.gitattributes', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/email/__init__.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'actiontrack/email/render.py', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'tests/unit/email/test_render.py', LF will be replaced by CRLF the next time Git touches it
+    A  .gitattributes
+    A  actiontrack/email/__init__.py
+    A  actiontrack/email/render.py
+    A  actiontrack/templates/followup.txt.j2
+    M  spec/modules/M9-email-render/spec.md
+    M  spec/modules/M9-email-render/tasks.md
+    M  spec/modules/M9-email-render/tests.md
+    M  spec/plan.md
+    A  tests/unit/email/__init__.py
+    A  tests/unit/email/snapshots/mixed.txt
+    A  tests/unit/email/snapshots/open_only.txt
+    A  tests/unit/email/snapshots/overdue_only.txt
+    A  tests/unit/email/test_render.py
+     .gitattributes                              |   3 +
+     actiontrack/email/__init__.py               |   1 +
+     actiontrack/email/render.py                 | 113 +++++++++++++++++++
+     actiontrack/templates/followup.txt.j2       |  23 ++++
+     spec/modules/M9-email-render/spec.md        |   6 +-
+     spec/modules/M9-email-render/tasks.md       |  10 +-
+     spec/modules/M9-email-render/tests.md       |   2 +-
+     spec/plan.md                                |   7 +-
+     tests/unit/email/__init__.py                |   0
+     tests/unit/email/snapshots/mixed.txt        |  22 ++++
+     tests/unit/email/snapshots/open_only.txt    |  14 +++
+     tests/unit/email/snapshots/overdue_only.txt |  14 +++
+     tests/unit/email/test_render.py             | 162 ++++++++++++++++++++++++++++
+     13 files changed, 366 insertions(+), 11 deletions(-)
+
+  [tool: Bash] [Commit implementation, push branch, view previous PR format]
+  $ git commit -q -F - <<'EOF'
+    M9: follow-up email rendering (template, sorting, days overdue, subject, whitespace)
+    
+    - actiontrack/email/render.py: EmailItem, RenderedEmail, render_followup. Overdue items sorted
+      most overdue first, open items by due with undated last, ties by short_id. Subject counts
+      open-not-overdue (G7). Invalid overdue items raise ValueError (G13). Every line is
+      right-stripped and the body ends with one newline (G14). Jinja is imported lazily and the
+      environment is built once.
+    - actiontrack/templates/followup.txt.j2: plain-text template (G12), "(no due date)" wording (G15).
+    - tests/unit/email: TC-M9-01..14 with hand-written snapshots; .gitattributes keeps snapshots and
+      templates LF on every checkout.
+    - Specs: G15 recorded and resolved, tasks ticked, status board updated.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    EOF
+    git push -u origin feat/m9-email-render 2>&1 | tail -2 && gh pr view 8 --json body -q .body | head -40
+  [result]:
+    To https://github.com/mohit-gupta-coditas/actiontrack-py.git
+     * [new branch]      feat/m9-email-render -> feat/m9-email-render
+    Implements [M8 — `list` and `done` commands](spec/modules/M8-list-done/spec.md): filtered views of tracked items (table or JSON), and marking items done by short ID.
+    
+    ## What's in it
+    - **`actiontrack/services/query.py`**: `ItemView`, `resolve_owner_query`, `list_items` and `mark_done`.
+      - `--status` defaults to `open`, which includes overdue items. `--owner` together with `--unassigned` is rejected (exit 2).
+      - `--due-before` goes through `parse_user_date` with the configured date order. A bad date exits 2 with a `YYYY-MM-DD` hint.
+      - Orphaned items are hidden unless you pass `--flag orphaned` (G3).
+      - `done` resolves the prefix (4+ hex chars), sets `done_source='cli'` and `done_at=now`, and reports whether anything changed.
+    - **`actiontrack/cli.py`**: real `list` and `done` commands replace the M0 stubs.
+      - The table has the columns ID / Owner / Task / Due / Status / Src. Overdue rows are red and always read `⚠ overdue`. Ambiguous owners show as `? Priya (ambiguous)`. Note text is printed literally, never as rich markup.
+      - The footer `N items (M overdue)` and the message `No items match.` go to stderr and are suppressed by `-q`.
+      - `--json` writes schema v1 to stdout only. `filters` echoes the values as typed, with the status defaulted.
+      - `done` prints `✓ <id>  <task>  (<owner>)` and leaves out the owner suffix when there is none. On an item that is already done, it prints a notice to stderr and exits 0.
+    
+    ## Changes outside M8
+    - **New gap G11, resolved: `PeopleRepo.find` also matches item owners that have no `people` row.** An owner written as a full name who is not an attendee gets a derived key (G5), but ingest only stores attendees. Before this change, `list --owner Vikram` (and `followup` later) answered "no person matches". The fix is read-only, with no schema or ingest change. A row in `people` wins over an item-derived entry. The M6 spec and a repo test are updated.
+    - **G3 is confirmed** in root spec §9.2 and §9.4 (followup excludes orphaned items). The M11 open question is updated to match.
+    - **Root spec §9.2**: the `⚠` marker is always shown, not only when colour is off. This matches §13.4 ("colour is never the only signal"). The column is named `Src`.
+    - M0 test TC-M0-27 now covers only the remaining `followup` stub.
+    
+    ## Test cases
+    TC-M8-01 … TC-M8-25 (`tests/integration/test_query.py`, `tests/integration/test_cli_list_done.py`). They run against a `seeded_db` fixture built through the M6 repos: 3 people, a non-attendee owner, and 9 items, one of them orphaned by deleting its note. Edge cases are covered too: an empty `--json`, `-q`, markup in a task, a bad `--status` choice, done on an orphaned item, done without an owner, and the item-owner lookup.
+    
+    ## Gate
+    - `ruff check`, `ruff format --check` and `mypy --strict actiontrack` are clean.
+    - 501 passed, 1 skipped (full suite including slow tests).
+    - Coverage: `services/query.py` 100%, `store/repo.py` 100%, `cli.py` 99%.
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+  [tool: Bash] [Check prior PR title and run full suite incl. slow]
+  $ gh pr view 8 --json title -q .title && .venv/Scripts/python -m pytest -q -m "" 2>&1 | tail -2
+  [result]:
+    M8: list and done commands
+    ..................                                                       [100%]
+    521 passed, 1 skipped in 21.78s
+
+  [tool: Bash] [Open pull request for M9]
+  $ gh pr create --base main --head feat/m9-email-render --title "M9: follow-up email rendering" --body-file - <<'EOF'
+    Implements [M9 — Follow-up email rendering](spec/modules/M9-email-render/spec.md): one person's overdue and open items rendered into a deterministic plain-text subject and body (REQ-FU-04, D5). `followup` (M11) will call it.
+    
+    ## What's in it
+    - **`actiontrack/email/render.py`**: `EmailItem`, `RenderedEmail` and `render_followup`.
+      - Subject: `Follow-up: your open action items (N open, M overdue)`, where N counts open items that are **not** overdue (G7). With no overdue items it reads `(N open)`.
+      - Sort order: overdue items most overdue first, and open items by due date with undated last. Ties are broken by short ID.
+      - `days` = `(today - due).days`, and "day" is singular for 1.
+      - `ValueError` when both lists are empty, or when an "overdue" item has no due date or isn't due before `today` (G13).
+      - Every rendered line is right-stripped and the body ends with exactly one `\n`, so trailing spaces in `sign_off` can't leak through (G14).
+      - Jinja is imported lazily (§13.7) and the environment is built once: `StrictUndefined`, no autoescape, `trim_blocks`, `lstrip_blocks`, `keep_trailing_newline`, `PackageLoader("actiontrack", "templates")`.
+    - **`actiontrack/templates/followup.txt.j2`**: the plain-text template. It ships in the wheel (checked with `uv build`).
+    - **`.gitattributes`**: keeps snapshots and templates LF on every checkout, so the byte-exact snapshot comparison also holds on Windows with `core.autocrlf=true`.
+    
+    ## Spec changes (gaps confirmed)
+    - **G7 ✅** N = open items that are not overdue. Root spec §9.4 now says so.
+    - **G12 ✅ (new)** The root spec named the template `followup.md.j2`; it is now plain-text `followup.txt.j2` (§9.4, §11).
+    - **G13 ✅ (new)** An invalid overdue item is a caller bug → `ValueError`. Added as TC-M9-13.
+    - **G14 ✅ (new)** Rendered lines are right-stripped. Added as TC-M9-14.
+    - **G15 ✅ (new)** Taken literally, the spec template rendered `(due no due date)`. Undated items now read `(no due date)`.
+    
+    ## Test cases
+    TC-M9-01 … TC-M9-14, plus a lazy-import test, in `tests/unit/email/test_render.py`. The snapshots `mixed.txt`, `open_only.txt` and `overdue_only.txt` were written by hand from the spec. Edge cases include sort ties on short ID, 1 day overdue, a missing meeting title, `{{ x }}` / `<b>` / `{% if %}` in task text (rendered literally), and overdue items with no due date, due today, or due later.
+    
+    ## Gate
+    - `ruff check`, `ruff format --check` and `mypy --strict actiontrack` are clean.
+    - 521 passed, 1 skipped (full suite including slow tests).
+    - Coverage: `email/render.py` 100%.
+    
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+    ... [1 more lines]
+  [result]:
+    https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9
+
+  [tool: Bash] [Link PR on status board and push]
+  $ python -c "
+    p='spec/plan.md'; s=open(p,encoding='utf-8').read()
+    a='| M9 | Draft | ☑ | ☑ | ☑ | — |'; assert a in s
+    s=s.replace(a,'| M9 | Draft | ☑ | ☑ | ☑ | [#9](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9) |')
+    open(p,'w',encoding='utf-8',newline='\r\n').write(s)" && git commit -qam "M9: link PR #9 on the status board
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && git push -q && git log --oneline -4
+  [result]:
+    27f7264 M9: link PR #9 on the status board
+    a1a552b M9: follow-up email rendering (template, sorting, days overdue, subject, whitespace)
+    06106ab M9: confirm gaps G7, G12, G13 and G14 in the specs
+    60eb082 Merge pull request #8 from mohit-gupta-coditas/feat/m8-list-done
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Saving the gap-handling workflow as a memory so it carries over to M10–M12:
+
+  [tool: Bash] [Check existing memory index]
+  $ cat "C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/memory/MEMORY.md" 2>/dev/null; ls "C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/memory/"
+  [result]:
+    (Bash completed with no output)
+
+  [tool: Write] C:\Users\Coditas-Admin\.claude\projects\c--Users-Coditas-Admin-Desktop-actionTracker\memory\module-gap-workflow.md  (863 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\.claude\projects\c--Users-Coditas-Admin-Desktop-actionTracker\memory\module-gap-workflow.md
+
+  [tool: Write] C:\Users\Coditas-Admin\.claude\projects\c--Users-Coditas-Admin-Desktop-actionTracker\memory\MEMORY.md  (138 chars — content in repo)
+  [result]:
+    File created successfully at: C:\Users\Coditas-Admin\.claude\projects\c--Users-Coditas-Admin-Desktop-actionTracker\memory\MEMORY.md (file state is current in your context — no need to Read it back)
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Module 9 (follow-up email rendering) is finished and up for review as [PR #9](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9). It's on branch `feat/m9-email-render`, and all checks pass.
+
+**Gaps you decided** (you picked my recommendation each time; all are now written into the specs and marked resolved in [plan.md](spec/plan.md)):
+- **G7:** in the subject `(N open, M overdue)`, N counts only open items that are not overdue.
+- **G12:** the root spec said `followup.md.j2`, but it is now plain text, `followup.txt.j2`.
+- **G13:** an "overdue" item with no due date, or a due date of today or later, raises `ValueError`. Added as TC-M9-13.
+- **G14:** after rendering, trailing spaces are stripped from every line and the body ends with one newline. Added as TC-M9-14.
+- **G15:** following the spec template literally gave "(due no due date)". Undated items now read "(no due date)".
+
+**What's built:**
+- [render.py](actiontrack/email/render.py): builds the subject and body for one person. It sorts the items, works out days overdue, and handles the subject with and without overdue items. Jinja is only loaded when an email is actually rendered.
+- [followup.txt.j2](actiontrack/templates/followup.txt.j2): the plain-text template. I built the package and confirmed the template is included in the installable wheel.
+- [test_render.py](tests/unit/email/test_render.py): TC-M9-01 to 14 plus a check that Jinja isn't loaded early. I wrote the three expected outputs by hand from the spec.
+- [.gitattributes](.gitattributes): new file. Expected outputs are compared byte for byte, and with this repo's git settings on Windows they would otherwise be checked out with Windows line endings and fail. This keeps them and the template on plain `\n` line endings.
+
+**Checks:** `ruff check`, `ruff format --check` and `mypy --strict` are clean. The full suite (including slow tests) gives 521 passed, 1 skipped, and `email/render.py` has 100% coverage.
+
+I also saved a memory so later modules follow the same routine: ask about gaps with a recommended option first, then record each one in the specs.
+
+
+####################################################################################################
+USER:
+commit push and raise PR
+
+  [tool: Bash] [Check for unpushed changes and PR state]
+  $ git status --short --branch && git log origin/feat/m9-email-render..HEAD --oneline && gh pr view 9 --json state,url -q '.state + " " + .url'
+  [result]:
+    ## feat/m9-email-render...origin/feat/m9-email-render
+    OPEN https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+There was nothing left to do: everything was already committed, pushed and in a PR during the Module 9 work.
+
+- **Commit:** your working tree is clean, so there's nothing new to commit.
+- **Push:** `feat/m9-email-render` matches `origin` with no unpushed commits. The three commits on it are:
+  - `06106ab` updates the specs with the gap decisions.
+  - `a1a552b` adds the email rendering code and its tests.
+  - `27f7264` links the PR on the status board.
+- **PR:** [#9 "M9: follow-up email rendering"](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9) is open against `main`.
+
+It's ready for review and merge.
+
+
+####################################################################################################
+USER:
+pull on main as PR merged
+
+  [tool: Bash] [Switch to main and pull merged PR]
+  $ gh pr view 9 --json state -q .state && git checkout -q main && git pull --ff-only 2>&1 | tail -3 && git log --oneline -4 && git status --short --branch
+  [result]:
+    MERGED
+     create mode 100644 tests/unit/email/snapshots/open_only.txt
+     create mode 100644 tests/unit/email/snapshots/overdue_only.txt
+     create mode 100644 tests/unit/email/test_render.py
+    80b12e4 Merge pull request #9 from mohit-gupta-coditas/feat/m9-email-render
+    27f7264 M9: link PR #9 on the status board
+    a1a552b M9: follow-up email rendering (template, sorting, days overdue, subject, whitespace)
+    06106ab M9: confirm gaps G7, G12, G13 and G14 in the specs
+    ## main...origin/main
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+You're on `main` and it now includes the merged PR #9 (merge commit `80b12e4`). Your working tree is clean and matches `origin/main`.
+
+The local `feat/m9-email-render` branch is still there; I can delete it if you want. M10 (Gmail MCP adapter) is next on the status board.
+
+
+####################################################################################################
+USER:
+export the whole converstaion as conv10.txt in conversations folder
+
+  [tool: Bash] [Check conversations folder and transcript files]
+  $ ls conversations 2>&1 | head; ls -t "C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/"*.jsonl | head -3
+  [result]:
+    conv1.txt
+    conv2.txt
+    conv3.txt
+    conv4.txt
+    conv5.txt
+    C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/702b62e6-f52e-4636-84e6-2ca9a59935a3.jsonl
+    C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/04b88705-fbd0-4fea-b5b0-7866965db888.jsonl
+    C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/eb6d3963-2525-46ad-aa49-126469eeb8c7.jsonl
+
+  [tool: Bash] [Inspect existing export format and find session transcript]
+  $ ls -la conversations; head -60 conversations/conv5.txt; ls "C:/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/" | grep 0bdf; git check-ignore -v conversations/conv5.txt
+  [result] (error):
+    Exit code 1
+    total 312
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 02:02 .
+    drwxr-xr-x 1 mohit.gupta_coditas 197121     0 Nov 26 01:57 ..
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 70905 Nov 26 01:59 conv1.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 75430 Nov 26 02:00 conv2.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 18910 Nov 26 02:02 conv3.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 62276 Nov 26 02:02 conv4.txt
+    -rw-r--r-- 1 mohit.gupta_coditas 197121 69906 Nov 26 02:02 conv5.txt
+    actiontrack — Conversation 5 (M4 item extraction: implement, PR, merge)
+    Session: 4c26c3e8-6b95-48b9-ad03-18e3442b2cb6
+    Exported: 2026-11-26
+    Note: internal reasoning and system reminders omitted; full file contents written by tools live in the repo.
+    ====================================================================================================
+    
+    
+    ####################################################################################################
+    USER:
+    work on M4
+    
+    
+    ----------------------------------------------------------------------------------------------------
+    CLAUDE:
+    I'll start by looking at the repo to find what M4 covers.
+    
+      [tool: Bash] [List tracked files and read CLAUDE.md]
+      $ git ls-files | head -100 && cat CLAUDE.md 2>/dev/null | head -100
+      [result]:
+        .gitignore
+        .python-version
+        README.md
+        actiontrack/__init__.py
+        actiontrack/__main__.py
+        actiontrack/cli.py
+        actiontrack/clock.py
+        actiontrack/config.py
+        actiontrack/console.py
+        actiontrack/errors.py
+        actiontrack/models.py
+        actiontrack/parsing/__init__.py
+    ... [30 more lines]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+I'll match the format of the earlier exports. Next I'll check how they render file writes, edits and question prompts:
+
+  [tool: Bash] [See how prior exports render tools]
+  $ cd /c/Users/Coditas-Admin/Desktop/actionTracker/conversations && grep -n -A8 -E "\[tool: (Write|Edit|AskUserQuestion)" conv*.txt | head -80; tail -30 conv5.txt
+  [result]:
+    conv1.txt:59:  [tool: AskUserQuestion] Q (Language): Which language/runtime should actiontrack be built in?
+    conv1.txt-60-   - Python 3.11+ (Recommended): Typer/Click CLI, stdlib sqlite3, dateparser for relative dates. Quick to write and test.
+    conv1.txt-61-   - Node.js + TypeScript: Commander CLI, better-sqlite3, chrono-node for dates. Matches a JS-heavy team.
+    conv1.txt-62-   - Go: Cobra CLI, a single static binary. Fewer date-parsing libraries to choose from.
+    conv1.txt-63-Q (Storage): Where should action items be stored between commands?
+    conv1.txt-64-   - SQLite file (Recommended): One local .db file. Filtering, unique constraints for dedup, and safe updates for `done`.
+    conv1.txt-65-   - JSON file: Simple and easy to diff, but you load and rewrite the whole file each time.
+    conv1.txt-66-   - Markdown write-back: Tick the checkboxes in the source notes. Changes the user's files, and dedup gets harder.
+    conv1.txt-67-Q (Gmail MCP): How does the CLI create Gmail drafts through the Gmail MCP connector?
+    --
+    conv1.txt:78:  [tool: AskUserQuestion] Q (Date anchor): Relative due dates like "by Friday" must become real dates. Which date should they be resolved against?
+    conv1.txt-79-   - Meeting date (Recommended): "Friday" means the first Friday after the meeting date in that note. Re-running ingest always gives the same result.
+    conv1.txt-80-   - Ingest date (today): Resolved against the day you run ingest. Simpler, but the dates change depending on when you run it.
+    conv1.txt-81-Q (Dedup rule): When are two action items treated as duplicates across meetings?
+    conv1.txt-82-   - Normalized owner+task match (Recommended): Same resolved owner and the same task text after lowercasing, removing punctuation and stripping the due phrase. Keep one item and record every source file.
+    conv1.txt-83-   - Fuzzy similarity: Same owner and task similarity ≥ a threshold (e.g. 0.85 via rapidfuzz). Catches rewordings but risks false merges.
+    conv1.txt-84-   - Exact text only: Merge only identical lines. Safest, but misses most real repeats.
+    conv1.txt-85-Q (Same names): How should two people with the same first name (e.g. two Priyas) be told apart?
+    conv1.txt-86-   - Resolve via attendees list (Recommended): Match the first name against that note's attendees (full names/emails). If it's still ambiguous, flag the item as 'ambiguous owner' for manual review.
+    --
+    conv1.txt:95:  [tool: AskUserQuestion] Q (Dedup rule): Given that explanation, which rule should decide when two action items are duplicates?
+    conv1.txt-96-   - Normalized exact, then fuzzy (Recommended): Merge on an exact normalized match first, then fuzzy (same owner, token_set_ratio ≥ 88). The threshold is configurable.
+    conv1.txt-97-   - Normalized exact only: Predictable and has no false merges, but rewordings stay as separate items.
+    conv1.txt-98-   - Fuzzy only: One fuzzy pass with a configurable threshold.
+    conv1.txt-99-Q (Dup due date): When a duplicate appears again in a later meeting with a different due date, which due date wins?
+    conv1.txt-100-   - Latest meeting wins (Recommended): A later mention is treated as an update or re-schedule. The earlier dates are kept in history.
+    conv1.txt-101-   - Earliest wins: Keeps the original commitment.
+    conv1.txt-102-Q (Malformed): Which kinds of malformed notes should be skipped and reported?
+    conv1.txt-103-   - Missing/unparseable date: There's no meeting date in the frontmatter or heading, so relative dates can't be resolved.
+    --
+    conv1.txt:113:  [tool: AskUserQuestion] Q (Recipient): followup <owner> needs a recipient email. Where does it come from?
+    conv1.txt-114-   - Attendee list emails (Recommended): Notes list attendees as 'Priya Shah <priya@x.com>'. If no email is found, it is an error and no draft is created.
+    conv1.txt-115-   - people.yaml mapping: A separate config maps each owner to an email address.
+    conv1.txt-116-   - Attendees, then people.yaml: Use the note's attendee list first and fall back to the config file.
+    conv1.txt-117-Q (ID format): How should i
+    ... [truncated, 5550 more chars]
+
+
+----------------------------------------------------------------------------------------------------
+CLAUDE:
+Earlier sessions used an export script in their scratchpads. I'll reuse it:
+
+  [tool: Bash] [Locate previous export script]
+  $ ls -t /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/*/scratchpad/export_conv.py 2>/dev/null | head -3
+  [result]:
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6/scratchpad/export_conv.py
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/f9a42155-df89-4707-9ee1-ad5b8ae48bb5/scratchpad/export_conv.py
+    /c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/ba1cdb32-a9c1-4616-af83-fda2d6eff3eb/scratchpad/export_conv.py
+
+  [tool: Bash] [Export this session to conversations/conv10.txt]
+  $ OLD=/c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6/scratchpad/export_conv.py
+    NEW=/c/Users/CODITA~1/AppData/Local/Temp/claude/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/scratchpad/export_conv.py
+    sed -e 's/4c26c3e8-6b95-48b9-ad03-18e3442b2cb6/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3/' -e 's/Conversation 5 (M4 item extraction: implement, PR, merge)/Conversation 10 (M9 follow-up email rendering: implement, PR, merge)/' "$OLD" > "$NEW"
+    grep -n "Conversation\|SESSION =" "$NEW" | head
+    cd /c/Users/Coditas-Admin/Desktop/actionTracker && python "$NEW" /c/Users/Coditas-Admin/.claude/projects/c--Users-Coditas-Admin-Desktop-actionTracker/0bdf4b63-da21-46b6-8c2c-4c976b9b21e3.jsonl conversations/conv10.txt && head -8 conversations/conv10.txt && grep -c "^USER:" conversations/conv10.txt && wc -c conversations/conv10.txt && tail -12 conversations/conv10.txt
