@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
-| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7, M8 and M9 done |
+| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7, M8, M9 and M10 done |
 | **Date** | 2026-11-25 |
 
 ---
@@ -89,7 +89,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 | M7 | Draft | ☑ | ☑ | ☑ | [#7](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/7) |
 | M8 | Draft | ☑ | ☑ | ☑ | [#8](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8) |
 | M9 | Draft | ☑ | ☑ | ☑ | [#9](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9) |
-| M10 | Draft | ☐ | ☐ | ☐ | — |
+| M10 | Draft | ☑ | ☑ | ☑ | [#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10) |
 | M11 | Draft | ☐ | ☐ | ☐ | — |
 | M12 | Draft | ☐ | ☐ | ☐ | — |
 
@@ -98,7 +98,8 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 These came up while writing the module specs. Each has a **proposed resolution**, which the module specs already assume.
 Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
 (root spec §6, §8), G4 with M7 (root spec §9.1), G3 and G11 with M8 (root spec §9.2, §9.4),
-and G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11).
+G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11),
+and G8, G16–G22 with M10 (root spec §10.1).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -109,7 +110,7 @@ and G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11).
 | G5 | A single-token owner that is not in the attendees (`Vikram to …`) | `owner_key = NULL`, flags `owner_not_attendee` + `unassigned`, `owner_raw` kept. A full name gets a derived key | M2, M4 |
 | G6 | Meaning of `next Friday` (said on a Wednesday) | The occurrence in the **following calendar week** (Mon-start). `this Friday` / `Friday` = the next occurrence strictly after | M3 |
 | G7 ✅ | In the subject `N open, M overdue`, does N include the overdue items? | N = open items that are **not** overdue. Total = N + M | M9 |
-| G8 | The Gmail MCP server's `create_draft` argument names/shapes are unknown (Q6) | Configurable argument mapping (`arg_names`, `to_as_list`), validated against the tool's `inputSchema` | M10 |
+| G8 ✅ | The Gmail MCP server's `create_draft` argument names/shapes are unknown (Q6) | Configurable argument mapping (`arg_names`, `to_as_list`), validated against the tool's `inputSchema` | M10 |
 | G9 | `ASAP` as a due phrase | Recognised. `due_date` NULL, flag `unparsed_due`, `due_raw = "ASAP"` | M3 |
 | G10 | The same person appears with an explicit email in one note and a derived email in another | Known limitation: two keys. Future work: `people.yaml` aliases | M2 |
 | G11 ✅ | An owner written as a full name who is not an attendee (G5) gets a derived key, but only attendees are stored in `people`, so `--owner` / `followup` could not find them | `PeopleRepo.find` also matches item owners missing from `people` (name = `owner_display`, email = the key if it is an email). Read-only: no schema or ingest change | M6, M8, M11 |
@@ -117,6 +118,13 @@ and G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11).
 | G13 ✅ | An `overdue` item passed to the renderer with no due date, or one not before `today` | `render_followup` raises `ValueError` (a caller bug, like both sections being empty) | M9, M11 |
 | G14 ✅ | A `sign_off` or task with trailing spaces breaks "no trailing whitespace" | Every rendered line is right-stripped, and the body ends with exactly one `\n` | M9 |
 | G15 ✅ | The M9 template `(due {{ due or "no due date" }})` reads "(due no due date)" for an undated item | Undated open items read `(no due date)`; dated ones `(due 2026-11-28)` | M9 |
+| G16 ✅ | The M10 spec used mcp v1 names (`FastMCP`, `streamablehttp_client`, camelCase result fields), but the installed SDK is mcp 2.x; `list_tools` is paginated | Target mcp 2.x (`mcp>=2.3,<3`): `MCPServer`, `streamable_http_client`, snake_case fields. Follow `next_cursor` until the draft tool is found | M10 |
+| G17 ✅ | The outbox file name's `<owner-key-slug>` rule was undefined | Lowercase; runs of chars outside `[a-z0-9._-]` → `-`; trim `-`/`.`; empty → `unknown`. Timestamp = `now` in its own timezone | M10, M11 |
+| G18 ✅ | The draft tool's schema may `require` arguments the client does not send | Fail before calling with `ExternalServiceError` naming them | M10 |
+| G19 ✅ | A Gmail API draft ID is usually not the compose ID, so the built `#drafts?compose=<id>` link may not open the draft | Use a `link`/`url` returned by the server when present; otherwise the built link | M10 |
+| G20 ✅ | The real server is the Gmail MCP connector (Q6), whose `create_draft` takes `to` as an array, but `to_as_list` defaulted to false | `McpConfig.to_as_list` defaults to `true`; other servers set it to false | M0, M10 |
+| G21 ✅ | The connector returns the draft link as `viewUrl`, which the G19 parser ignored | Link keys are `viewUrl`, `link`, `url`, in that order | M10 |
+| G22 ✅ | The connector is hosted and needs OAuth, and the adapter has no auth (REQ-MCP-05) | The adapter stays auth-free: `[gmail_mcp]` points at an already-authenticated endpoint (http `url` or stdio bridge). The endpoint is confirmed in M12's smoke test | M10, M12 |
 
 ## 6. Traceability check (run before each PR)
 

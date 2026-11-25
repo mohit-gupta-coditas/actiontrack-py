@@ -85,7 +85,7 @@ transport = "http"
 url = "http://localhost:9000/mcp"
 args = ["--a"]
 arg_names = { to = "recipients" }
-to_as_list = true
+to_as_list = false
 timeout_s = 5
 """,
     )
@@ -100,7 +100,7 @@ timeout_s = 5
         "http",
         "http://localhost:9000/mcp",
         ("--a",),
-        True,
+        False,
         5.0,
     )
     assert dict(mcp.arg_names) == {"to": "recipients", "subject": "subject", "body": "body"}
