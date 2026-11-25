@@ -91,7 +91,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 | M9 | Draft | ☑ | ☑ | ☑ | [#9](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9) |
 | M10 | Draft | ☑ | ☑ | ☑ | [#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10) |
 | M11 | Draft | ☑ | ☑ | ☑ | [#11](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/11) |
-| M12 | Draft | ☐ | ☐ | ☐ | — |
+| M12 | Draft | ☑ | ☑ | ☐ (T12.10 smoke test) | [#12](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/12) |
 
 ## 5. Spec gaps found while decomposing
 
@@ -100,7 +100,8 @@ Once a gap is confirmed, the root spec is updated and the gap is marked resolved
 (root spec §6, §8), G4 with M7 (root spec §9.1), G3 and G11 with M8 (root spec §9.2, §9.4),
 G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11),
 G8, G16–G22 with M10 (root spec §10.1),
-and Q5 and G23–G27 with M11 (root spec §9.4, §17, §19).
+Q5 and G23–G27 with M11 (root spec §9.4, §17, §19),
+and G28–G37 with M12 (root spec §13.1, §13.4, §13.5, §17).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -131,6 +132,16 @@ and Q5 and G23–G27 with M11 (root spec §9.4, §17, §19).
 | G25 ✅ | `[gmail_mcp]` is misconfigured (no `url`/`command`, non-allowlisted `draft_tool`) | The adapter's config error surfaces as is (exit 2, or 1 for `ForbiddenToolError`). No outbox file: nothing was attempted | M11 |
 | G26 ✅ | The draft is created but recording the `drafts` row fails (DB locked) | `FatalError` (exit 1) whose message names the draft's link or ID. No outbox, no second draft | M11 |
 | G27 ✅ | An item with an unparsed due phrase (`ASAP`) has no `due_date`, so the email reads `(no due date)` | Kept for now (no M9 change). Showing the raw phrase is future work (root spec §19) | M9, M11 |
+| G28 ✅ | The sample `notes/` folder is not in the repo, and `expected.yaml` can only be written by reading it | The user provides the real folder (no synthetic set). Until `notes/` and `tests/e2e/expected.yaml` exist, the e2e tests that need them **skip with a reason**, and M12's DoD stays unticked | M12 |
+| G29 ✅ | The manual Gmail smoke test (T12.10) needs an authenticated MCP endpoint the CLI can reach, which CI and the agent lack | The README documents the exact steps. The PR lists T12.10 as pending, and `v0.1.0` is tagged only after the user confirms the draft appeared and nothing was sent | M12 |
+| G30 ✅ | `trace_check.py` must detect REQ IDs owned by more than one module, but nothing says where ownership is read from; §18 also has a range row (`REQ-ACC-01..11`) | Ownership comes from the `REQ IDs owned` column of plan §2. Ranges (`CLI-01..07`, `REQ-ACC-01..11`) are expanded in both files | M12 |
+| G31 ✅ | Root §13.1 names the entry point `actiontrack.cli:app`, but the code uses `actiontrack.cli:main` | `cli:main`: it adds UTF-8 stdio and the exit-code mapping. The root spec is fixed | M0, M12 |
+| G32 ✅ | TC-M12-02 reads `list --json`, which shows only open items, but most sample duplicates end `[x]` in a later note | Read `list --json` and `list --status done --json` and check each duplicate across both | M12 |
+| G33 ✅ | TC-M12-05 queries `--owner Rahul`, which is ambiguous (exit 2) because the sample has Rahul Mehta and Rahul Verma | The fixture note's only attendee is Rahul Mehta, and the test queries `--owner "Rahul Mehta"` | M12 |
+| G34 ✅ | `expected.yaml` has no expected due per duplicate, and nothing checks `min_unique_items` | Each duplicate may carry a hand-computed `due` (D8) and `status`. TC-M12-01 checks the report's unique count ≥ `min_unique_items` | M12 |
+| G35 ✅ | On Windows, `FORCE_COLOR` on a pipe makes rich use legacy Win32 console calls, so no ANSI reaches the pipe (TC-M12-06) | With `FORCE_COLOR` set, the consoles use `legacy_windows=False`: forced colour is ANSI on every OS | M0 |
+| G36 ✅ | `actiontrack list \| head -3` prints `Error: internal error (OSError)` and exits 1 when the reader closes the pipe | A closed stdout ends the command quietly: stdout → `os.devnull`, exit 0, nothing on stderr. A bare `EPIPE` outside rich keeps Typer's quiet exit 1 | M0 |
+| G37 ✅ | Every sample note's H1 is `# Meeting: <title>`, so emails read `From: Meeting: QA sync, …` | The H1 title drops a leading `Meeting:` / `Notes:` label (case-insensitive). Frontmatter titles are kept as written. Stored titles refresh when a note changes | M1 |
 
 ## 6. Traceability check (run before each PR)
 

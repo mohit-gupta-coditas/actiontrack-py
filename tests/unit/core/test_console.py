@@ -104,3 +104,17 @@ def test_TC_M0_23_cli_import_is_lazy() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == "[]"
+
+
+def test_TC_M0_28_force_color_is_ansi_even_on_legacy_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import rich.console
+
+    pipe = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", pipe)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setattr(rich.console, "detect_legacy_windows", lambda: True)
+    output = make_output(no_color=False, quiet=False, verbosity=0, env={"FORCE_COLOR": "1"})
+    output.out.print("[red]x[/red]")
+    assert "\x1b[31m" in pipe.getvalue()

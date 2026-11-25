@@ -6,11 +6,11 @@ Location: `tests/e2e/`. All `@pytest.mark.slow`. The CLI runs as a subprocess wi
 
 | TC | Given | When | Then | REQ |
 |---|---|---|---|---|
-| TC-M12-01 | `notes/` | `ingest notes/` | Exit 0. stderr has no `Traceback`. The `Skipped:` section matches `expected.yaml.skipped` exactly (file + reason) | REQ-ACC-01 |
-| TC-M12-02 | Ingested | `list --json` | Each `expected.duplicates` entry appears once with ≥ `min_sources` sources and due = the latest-meeting due date | REQ-ACC-02 |
+| TC-M12-01 | `notes/` | `ingest notes/` | Exit 0. stderr has no `Traceback`. The `Skipped:` section matches `expected.yaml.skipped` exactly (file + reason). The report's unique item count ≥ `min_unique_items` (G34) | REQ-ACC-01 |
+| TC-M12-02 | Ingested | `list --json` and `list --status done --json` (G32) | Each `expected.duplicates` entry appears once across both, with ≥ `min_sources` sources, and its `due` and `status` when given (G34) | REQ-ACC-02 |
 | TC-M12-03 | Ingested | `list --flag ambiguous_owner --json` | Contains the items at each `expected.ambiguous` file:line. Their owner is null | REQ-ACC-03 |
 | TC-M12-04 | Ingested | `list --unassigned --json` and `list --status overdue --json` | Unassigned is non-empty. No item with `due_date == null` in the overdue output | REQ-ACC-04 |
-| TC-M12-05 | Fixture note dated 2026-11-18 with `- [ ] Rahul to send quote by Friday` added to a temp copy of notes/ | ingest + `list --json --owner Rahul` | That item has `due_date == "2026-11-20"` | REQ-ACC-05 |
+| TC-M12-05 | Fixture note dated 2026-11-18 with `- [ ] Rahul to send quote by Friday` added to a temp copy of notes/ | ingest + `list --json --owner "Rahul Mehta"` (the fixture's only attendee; the sample has two Rahuls, G33) | That item has `due_date == "2026-11-20"` | REQ-ACC-05 |
 | TC-M12-06 | Ingested | `list --status overdue` with `FORCE_COLOR=1` and without colour | Every row's due < today. Coloured: red ANSI. Plain: `⚠ overdue` | REQ-ACC-06 |
 | TC-M12-07 | Ingested | `done <id>` → modify that item's note (touch the content) → `ingest` → `list --status done --json` | The item is still done | REQ-ACC-07 |
 | TC-M12-08 | Ingested, fake MCP configured | `followup "<an owner with items>"` | Exactly 1 `create_draft` in the fake's call log, to the expected address. 0 send/reply/forward. Exit 0 | REQ-ACC-08, REQ-GEN-01 |

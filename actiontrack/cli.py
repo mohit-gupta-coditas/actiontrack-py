@@ -29,7 +29,13 @@ from typer._click.exceptions import ClickException
 from actiontrack import __version__
 from actiontrack.clock import Clock, clock_from_env
 from actiontrack.config import Config, load_config, settings_view
-from actiontrack.console import Output, configure_stdio_utf8, make_output
+from actiontrack.console import (
+    Output,
+    configure_stdio_utf8,
+    make_output,
+    silence_stdout,
+    stdout_closed,
+)
 from actiontrack.errors import ActionTrackError, ExitCode, UserInputError
 from actiontrack.models import JSON_SCHEMA_VERSION, Flag, to_jsonable
 
@@ -569,6 +575,9 @@ def run(
         _err("Interrupted")
         return int(ExitCode.INTERRUPTED)
     except Exception as e:
+        if stdout_closed(e):
+            silence_stdout()
+            return int(ExitCode.OK)
         _report(
             f"Error: internal error ({type(e).__name__}). Re-run with --debug for details.",
             debug=debug,
