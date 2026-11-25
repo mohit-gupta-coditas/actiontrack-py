@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft |
-| **Depends on** | M0 |
+| **Depends on** | M0. Uses `normalize_task` and `DedupResult` (M5) and `normalize_name` (M2) |
 | **Files** | `actiontrack/store/db.py`, `actiontrack/store/repo.py`, `actiontrack/store/migrations/0001_init.sql` |
 | **REQ IDs** | REQ-STORE-01 … 06 |
 
@@ -15,17 +15,25 @@ Overdue is computed at query time.
 
 ```python
 def connect(path: Path) -> sqlite3.Connection
-    # mkdir -p parent; sqlite3.connect(path, detect_types=PARSE_DECLTYPES, isolation_level=None)
+    # mkdir -p parent; sqlite3.connect(path, isolation_level=None)
     # PRAGMA journal_mode=WAL; busy_timeout=5000; foreign_keys=ON; row_factory=sqlite3.Row; migrate(conn)
 @contextmanager
 def transaction(conn) -> Iterator[None]
-    # BEGIN IMMEDIATE … COMMIT; ROLLBACK on any BaseException (incl. KeyboardInterrupt), then re-raise
+    # BEGIN IMMEDIATE … COMMIT; ROLLBACK on any BaseException (incl. KeyboardInterrupt), then re-raise.
+    # Re-entrant: inside an open transaction it does nothing and the outer block owns the commit.
 def migrate(conn) -> None
     # applies migrations/NNNN_*.sql in order where NNNN > PRAGMA user_version; each in its own transaction
 ```
-- `path == Path(":memory:")` is supported for tests.
+- `path == Path(":memory:")` (`db.MEMORY`) is supported for tests.
 - A DB with `user_version` greater than the latest known migration → `FatalError("database was created by a newer actiontrack")`.
-- `sqlite3.OperationalError` "unable to open" / read-only → `FatalError` with the path.
+- Any `sqlite3.DatabaseError` while opening (unable to open, read-only, not a database) or an `OSError` creating the parent
+  directory → `FatalError` naming the path.
+- **No `detect_types`.** Python 3.12 deprecates the default date/datetime adapters, so dates and timestamps are stored as ISO-8601
+  text and converted in `repo.py`. ISO dates compare correctly as text.
+- The runner, not the SQL file, sets `PRAGMA user_version = NNNN` (inside the migration's transaction). If a migration fails but
+  `user_version` has meanwhile reached its number (another process applied it), the failure is ignored.
+- Repository methods that run several statements (`upsert_skipped`, `replace_for_note`, `apply_groups`) wrap themselves in
+  `transaction`, so they are atomic on their own and join a caller's transaction (M7) when there is one.
 
 ## 3. Schema v1 (REQ-STORE-01, REQ-STORE-06)
 
@@ -33,7 +41,7 @@ Extends root spec §8 with gaps G1 and G2 (nullable `people.email`, parsed field
 
 ```sql
 CREATE TABLE notes (
-  path TEXT PRIMARY KEY, sha256 TEXT NOT NULL, meeting_date DATE, title TEXT,
+  path TEXT PRIMARY KEY, sha256 TEXT, meeting_date DATE,          -- sha256 NULL: skipped, unreadable title TEXT,
   ingested_at TIMESTAMP NOT NULL, status TEXT NOT NULL CHECK (status IN ('ok','skipped')),
   skip_reason TEXT, skip_detail TEXT
 );
@@ -66,38 +74,39 @@ CREATE INDEX ix_items_owner ON items(owner_key);
 CREATE INDEX ix_items_status_due ON items(status, due_date);
 CREATE INDEX ix_sources_item ON item_sources(item_id);
 CREATE INDEX ix_sources_note ON item_sources(note_path);
-PRAGMA user_version = 1;
 ```
-JSON columns (`flags`, `owner_flags`, `owner_candidates`, `item_ids`) hold sorted JSON arrays of strings.
+JSON columns hold JSON arrays of strings: flag sets (`flags`, `owner_flags`) sorted; sequences (`owner_candidates`, `item_ids`)
+in their given order. Paths are stored as POSIX strings.
 
 ## 4. Repositories — `repo.py`
 
 ```python
 class NoteRepo:
-    def get(self, path: Path) -> NoteRow | None             # sha256, status
+    def get(self, path: Path) -> NoteRow | None
     def upsert_ok(self, meta: NoteMeta, *, now: datetime) -> None
     def upsert_skipped(self, rec: SkipRecord, *, sha256: str | None, now: datetime) -> None   # also deletes its sources
-    def paths_under(self, root: Path) -> list[Path]
+    def paths_under(self, root: Path) -> list[Path]          # by path parts: notes2/ is not under notes/
     def delete(self, path: Path) -> None                     # cascades sources
 
 class SourceRepo:
-    def replace_for_note(self, path: Path, items: Sequence[ParsedItem]) -> None
-    def all(self) -> list[ParsedItem]                        # rebuilt ParsedItems, deterministic order
+    def replace_for_note(self, path: Path, items: Sequence[ParsedItem]) -> None   # ValueError if an item is from another note
+    def all(self) -> list[ParsedItem]                        # rebuilt, ordered by (meeting_date, path, line_no)
     def count(self) -> int
 
 class PeopleRepo:
-    def upsert_many(self, attendees: Iterable[Attendee]) -> None   # an explicit email never overwritten by None
-    def find(self, query: str) -> list[Person]               # key, email, full name, or first name (normalized)
+    def upsert_many(self, attendees: Iterable[Attendee]) -> None   # email = explicit or derived; never overwritten by None
+    def find(self, query: str) -> list[Person]               # key, email, full name, or first name (normalize_name), by key
     def get(self, key: str) -> Person | None
 
 class ItemRepo:
     def existing(self) -> list[ExistingItem]
+        # task_norms = the item's task_norm ∪ normalize_task(task) of every source linked to it
     def apply_groups(self, result: DedupResult) -> None
-        # upsert every group; reassign item_sources.item_id; add ORPHANED flag to orphaned_ids (status untouched);
-        # remove ORPHANED from groups that have sources again
+        # upsert every group; unlink all sources, then link each group's sources; add ORPHANED flag to orphaned_ids
+        # (status untouched, unknown ids ignored); group flags replace the stored ones, so ORPHANED goes when sources return
     def query(self, f: ItemFilter, *, today: date) -> list[ItemRow]
-    def ids(self) -> list[str]
-    def get(self, item_id: str) -> ItemRow | None
+    def ids(self) -> list[str]                               # sorted, orphaned included
+    def get(self, item_id: str, *, today: date) -> ItemRow | None   # orphaned included; `today` for is_overdue
     def mark_done(self, item_id: str, *, now: datetime) -> bool   # False if already done
 
 class DraftRepo:
@@ -114,8 +123,19 @@ class ItemFilter:
 
 @dataclass(frozen=True)
 class ItemRow:   # ItemGroup fields minus sources, plus:
-    source_count: int; is_overdue: bool; sources: tuple[SourceRef, ...]   # (path, line_no, meeting_date, note_title)
+    source_count: int; is_overdue: bool; sources: tuple[SourceRef, ...]   # ordered by (meeting_date, path, line_no)
+
+@dataclass(frozen=True)
+class SourceRef:  path: Path; line_no: int; meeting_date: date; note_title: str | None
+
+@dataclass(frozen=True)
+class NoteRow:
+    path: Path; sha256: str | None; status: Literal["ok", "skipped"]; meeting_date: date | None; title: str | None
+    ingested_at: datetime; skip_reason: str | None; skip_detail: str | None
 ```
+
+**Rebuilt sources.** `SourceRepo.all()` cannot restore what is not stored: `due.span` is `None`, and `due.flags` is
+`flags ∩ {NO_DUE, UNPARSED_DUE}` (M4 builds `flags = owner.flags | due.flags | MULTI_OWNER`, and M3 only emits those two).
 
 ## 5. Query semantics (REQ-STORE-02)
 - `is_overdue = status='open' AND due_date IS NOT NULL AND due_date < :today`, computed in SQL. It is never stored.
@@ -130,4 +150,5 @@ class ItemRow:   # ItemGroup fields minus sources, plus:
 Deciding groups (M5). Deciding when to ingest (M7). Output formatting.
 
 ## 7. Open questions
-G1 and G2 need confirming in the root spec §8.
+G1 and G2 need confirming in the root spec §8. This module also makes `notes.sha256` nullable (a note skipped with
+`READ_ERROR` has no hash, so it is retried on every ingest) and adds `notes.skip_detail` and `drafts.recipient`.
