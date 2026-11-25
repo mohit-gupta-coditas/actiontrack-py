@@ -1,7 +1,8 @@
 # M8 — Test Cases
 
 Location: `tests/integration/test_query.py` and `tests/integration/test_cli_list_done.py`. Seeded DB fixture (`seeded_db`) with:
-Priya Shah, Priya Nair, Rahul Mehta; 8 items covering open/overdue/done/no-due/unassigned/ambiguous/orphaned. `FixedClock(2026-11-25)`.
+Priya Shah, Priya Nair, Rahul Mehta (attendees) and Vikram Rao (an owner who is not an attendee, G11); 9 items covering
+open/overdue/done/no-due/unassigned/ambiguous/orphaned. `FixedClock(2026-11-25)`.
 
 | TC | Given | When | Then | REQ |
 |---|---|---|---|---|
@@ -29,3 +30,4 @@ Priya Shah, Priya Nair, Rahul Mehta; 8 items covering open/overdue/done/no-due/u
 | TC-M8-22 | seeded_db with 2 ids sharing a prefix | `done <shared prefix>` | exit 2, both short ids in the hint | REQ-DONE-02 |
 | TC-M8-23 | seeded_db | `done ffff` / `done ab` | exit 2 | REQ-DONE-02 |
 | TC-M8-24 | seeded_db | `done <id>` | `done_source == 'cli'`, `done_at == clock.now()` in the DB | REQ-DONE-01 |
+| TC-M8-25 | seeded_db | `list --owner vikram` | Vikram Rao's item (an owner with no `people` row) | REQ-LIST-01 (G11) |

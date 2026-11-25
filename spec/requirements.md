@@ -267,16 +267,16 @@ Extra command: `actiontrack config show` (§13.6).
 ### 9.2 `actiontrack list`
 | Option | Meaning |
 |---|---|
-| `--owner TEXT` | Matches the person key, email, full name, or first name. An ambiguous first name prints the candidates and exits 2 |
+| `--owner TEXT` | Matches the person key, email, full name, or first name, of an attendee or of an owner that only appears on items (a full name not in the attendees, G11). An ambiguous first name prints the candidates and exits 2 |
 | `--status open\|done\|overdue` | `overdue` ⊂ `open` |
 | `--due-before DATE` | Any date `dateparser` understands, relative to today (e.g. `2026-12-01`, `next friday`) |
 | `--unassigned` | Only items with `owner_key IS NULL` |
-| `--flag NAME` | e.g. `ambiguous_owner`, `orphaned` |
+| `--flag NAME` | e.g. `ambiguous_owner`, `orphaned`. Orphaned items are hidden unless this is `--flag orphaned` (G3) |
 | `--json` | Machine-readable output |
 
-- The default view shows all open items sorted by due date (nulls last), then owner.
-- Table columns: `ID`, `Owner`, `Task`, `Due`, `Status`, `Sources` (count). **Overdue rows are shown in red**, with a `⚠` marker
-  when colour is off.
+- The default view shows all open items, except orphaned ones (G3), sorted by due date (nulls last), then owner.
+- Table columns: `ID`, `Owner`, `Task`, `Due`, `Status`, `Src` (source count). **Overdue rows are shown in red**, and their status
+  always reads `⚠ overdue`, so colour is never the only signal.
 
 ### 9.3 `actiontrack done <id>`
 - Resolves the ID prefix (§8.1) and sets `status='done'`, `done_source='cli'`, `done_at=now`.
@@ -284,7 +284,7 @@ Extra command: `actiontrack config show` (§13.6).
 
 ### 9.4 `actiontrack followup <owner>`
 1. Resolves the owner (same rules as `--owner`). An ambiguous or unknown owner → error, no draft.
-2. Selects that owner's **open + overdue** items. If there are none → message, no draft.
+2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3). If there are none → message, no draft.
 3. Resolves the recipient (D13):
    - the email from any attendees entry for this person, **or**
    - `firstname.lastname@coditas.com`, derived from the full name (lowercased, accents removed, spaces/hyphens in multi-part

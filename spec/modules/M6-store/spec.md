@@ -95,7 +95,8 @@ class SourceRepo:
 
 class PeopleRepo:
     def upsert_many(self, attendees: Iterable[Attendee]) -> None   # email = explicit or derived; never overwritten by None
-    def find(self, query: str) -> list[Person]               # key, email, full name, or first name (normalize_name), by key
+    def find(self, query: str) -> list[Person]               # key, email, full name, or first name (normalize_name), by key.
+                                                             # Also item owners missing from `people` (G11, added by M8)
     def get(self, key: str) -> Person | None
 
 class ItemRepo:

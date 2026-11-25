@@ -47,4 +47,4 @@ CLI: `actiontrack followup <owner> [--dry-run]`
 Batch follow-ups for everyone (future). Editing or deleting drafts.
 
 ## 6. Open questions
-Q5 (ambiguous items excluded) and G3 (orphaned excluded) need confirming.
+Q5 (ambiguous items excluded) needs confirming. G3 (orphaned excluded) was confirmed with M8.

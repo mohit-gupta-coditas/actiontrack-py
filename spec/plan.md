@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
-| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6 and M7 done |
+| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7 and M8 done |
 | **Date** | 2026-11-25 |
 
 ---
@@ -87,7 +87,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 | M5 | Draft | ☑ | ☑ | ☑ | [#5](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/5) |
 | M6 | Draft | ☑ | ☑ | ☑ | [#6](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/6) |
 | M7 | Draft | ☑ | ☑ | ☑ | [#7](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/7) |
-| M8 | Draft | ☐ | ☐ | ☐ | — |
+| M8 | Draft | ☑ | ☑ | ☑ | [#8](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8) |
 | M9 | Draft | ☐ | ☐ | ☐ | — |
 | M10 | Draft | ☐ | ☐ | ☐ | — |
 | M11 | Draft | ☐ | ☐ | ☐ | — |
@@ -97,13 +97,13 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 
 These came up while writing the module specs. Each has a **proposed resolution**, which the module specs already assume.
 Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
-(root spec §6, §8), and G4 with M7 (root spec §9.1).
+(root spec §6, §8), G4 with M7 (root spec §9.1), and G3 and G11 with M8 (root spec §9.2, §9.4).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
 | G1 ✅ | An attendee listed only by first name, with no email, has no person key. `people.email` is `NOT NULL` in §8 | Person key = `name:<firstname>` for such attendees. `people.email` becomes nullable. `followup` for them fails with "cannot derive email" | M2, M6, M11 |
 | G2 ✅ | Incremental ingest needs the parsed fields of every source to regroup items, and §8 `item_sources` stores only raw text | `item_sources` stores the parsed fields (owner_key, task, task_norm, due, checked, flags). PK becomes `(note_path, line_no)`, and `item_id` is reassigned on every regroup. Grouping always re-runs over **all** sources, so a change in config (threshold) applies everywhere | M5, M6, M7 |
-| G3 | Are `orphaned` items shown in `list` and included in `followup`? | Hidden from the default `list` (shown with `--flag orphaned`) and excluded from `followup` | M8, M11 |
+| G3 ✅ | Are `orphaned` items shown in `list` and included in `followup`? | Hidden from the default `list` (shown with `--flag orphaned`) and excluded from `followup` | M8, M11 |
 | G4 ✅ | A note file that was deleted from the folder | Its sources are removed and its items become `orphaned`. Only files under the scanned root are affected, so ingesting a different folder orphans nothing | M7 |
 | G5 | A single-token owner that is not in the attendees (`Vikram to …`) | `owner_key = NULL`, flags `owner_not_attendee` + `unassigned`, `owner_raw` kept. A full name gets a derived key | M2, M4 |
 | G6 | Meaning of `next Friday` (said on a Wednesday) | The occurrence in the **following calendar week** (Mon-start). `this Friday` / `Friday` = the next occurrence strictly after | M3 |
@@ -111,6 +111,7 @@ Once a gap is confirmed, the root spec is updated and the gap is marked resolved
 | G8 | The Gmail MCP server's `create_draft` argument names/shapes are unknown (Q6) | Configurable argument mapping (`arg_names`, `to_as_list`), validated against the tool's `inputSchema` | M10 |
 | G9 | `ASAP` as a due phrase | Recognised. `due_date` NULL, flag `unparsed_due`, `due_raw = "ASAP"` | M3 |
 | G10 | The same person appears with an explicit email in one note and a derived email in another | Known limitation: two keys. Future work: `people.yaml` aliases | M2 |
+| G11 ✅ | An owner written as a full name who is not an attendee (G5) gets a derived key, but only attendees are stored in `people`, so `--owner` / `followup` could not find them | `PeopleRepo.find` also matches item owners missing from `people` (name = `owner_display`, email = the key if it is an email). Read-only: no schema or ingest change | M6, M8, M11 |
 
 ## 6. Traceability check (run before each PR)
 

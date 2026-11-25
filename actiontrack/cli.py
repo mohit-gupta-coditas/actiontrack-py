@@ -13,13 +13,15 @@ import sys
 import traceback
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
+from rich.text import Text
 
 # Typer vendors Click; its ClickException (usage errors, bad parameters) is not re-exported.
 from typer._click.exceptions import ClickException
@@ -29,11 +31,21 @@ from actiontrack.clock import Clock, clock_from_env
 from actiontrack.config import Config, load_config, settings_view
 from actiontrack.console import Output, configure_stdio_utf8, make_output
 from actiontrack.errors import ActionTrackError, ExitCode, FatalError, UserInputError
-from actiontrack.models import JSON_SCHEMA_VERSION, to_jsonable
+from actiontrack.models import JSON_SCHEMA_VERSION, Flag, to_jsonable
+
+if TYPE_CHECKING:
+    from actiontrack.services.query import ItemView
 
 PROG_NAME = "actiontrack"
 DEBUG_ENV = "ACTIONTRACK_DEBUG"
 CONTEXT_SETTINGS: dict[str, Any] = {"help_option_names": ["-h", "--help"]}
+NO_VALUE = "—"
+
+
+class ListStatus(StrEnum):
+    OPEN = "open"
+    DONE = "done"
+    OVERDUE = "overdue"
 
 
 @dataclass
@@ -145,33 +157,83 @@ def create_app() -> typer.Typer:
         )
 
     @app.command("list")
-    def list_items() -> None:
+    def list_items(
+        ctx: typer.Context,
+        owner: Annotated[
+            str | None,
+            typer.Option(
+                "--owner", help="Person key, email, full or first name.", show_default=False
+            ),
+        ] = None,
+        status: Annotated[
+            ListStatus | None,
+            typer.Option(
+                "--status",
+                help="open (the default; includes overdue), done or overdue.",
+                show_default=False,
+            ),
+        ] = None,
+        due_before: Annotated[
+            str | None,
+            typer.Option(
+                "--due-before",
+                metavar="DATE",
+                help="Only items due before DATE (e.g. 2026-12-01, friday).",
+                show_default=False,
+            ),
+        ] = None,
+        unassigned: Annotated[
+            bool, typer.Option("--unassigned", help="Only items with no owner.")
+        ] = False,
+        flag: Annotated[
+            Flag | None,
+            typer.Option(
+                "--flag",
+                help="Only items with this flag. Orphaned items show only with --flag orphaned.",
+                show_default=False,
+            ),
+        ] = None,
+        as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+    ) -> None:
         """List action items.
 
-        By default shows open items sorted by due date, then owner.
+        By default shows open items (overdue included) sorted by due date, then owner.
 
         \b
         Examples:
           actiontrack list
           actiontrack list --owner priya --status overdue
+          actiontrack list --due-before friday --unassigned
+          actiontrack list --flag ambiguous_owner
           actiontrack list --json
         """
-        raise FatalError("not implemented")
+        app_ctx: AppContext = ctx.find_root().obj
+        _list(
+            app_ctx,
+            owner=owner,
+            status=None if status is None else status.value,
+            due_before=due_before,
+            unassigned=unassigned,
+            flag=None if flag is None else flag.value,
+            as_json=as_json,
+        )
 
     @app.command()
     def done(
+        ctx: typer.Context,
         item_id: Annotated[str, typer.Argument(metavar="ID", help="Item ID or unique prefix.")],
     ) -> None:
         """Mark an action item as done.
 
-        ID may be any unique prefix of the item ID shown by `list`.
+        ID may be any unique prefix (4+ characters) of the item ID shown by `list`.
 
         \b
         Examples:
           actiontrack done a3f91c
-          actiontrack done a3f
+          actiontrack done a3f9
         """
-        raise FatalError("not implemented")
+        app_ctx: AppContext = ctx.find_root().obj
+        _done(app_ctx, item_id)
 
     @app.command()
     def followup(
@@ -292,6 +354,119 @@ def _ingest(
             raise UserInputError(
                 f"cannot write the JSON report to {report_json}: {e.strerror or e}"
             ) from e
+
+
+def _list(
+    app_ctx: AppContext,
+    *,
+    owner: str | None,
+    status: str | None,
+    due_before: str | None,
+    unassigned: bool,
+    flag: str | None,
+    as_json: bool,
+) -> None:
+    from actiontrack.services.query import list_items
+    from actiontrack.store.db import connect
+
+    output, clock = app_ctx.output, app_ctx.clock
+    conn = connect(app_ctx.config.db_path)
+    try:
+        views = list_items(
+            conn,
+            owner=owner,
+            status=status,
+            due_before=due_before,
+            unassigned=unassigned,
+            flag=flag,
+            clock=clock,
+            date_order=app_ctx.config.date_order,
+        )
+    finally:
+        conn.close()
+
+    if as_json:
+        data = {
+            "schema_version": JSON_SCHEMA_VERSION,
+            "generated_at": clock.now().isoformat(timespec="seconds"),
+            "today": clock.today().isoformat(),
+            "filters": {
+                "owner": owner,
+                "status": status or ListStatus.OPEN.value,
+                "due_before": due_before,
+                "unassigned": unassigned,
+                "flag": flag,
+            },
+            "items": [_item_json(v) for v in views],
+        }
+        output.data(json.dumps(data, indent=2, ensure_ascii=False))
+        return
+    if not views:
+        output.info("No items match.")
+        return
+    table = Table("ID", "Owner", "Task", "Due", "Status", "Src")
+    for v in views:
+        overdue = v.status == "overdue"
+        # Note text goes in as Text, so a `[x]` in a task is never read as rich markup.
+        table.add_row(
+            v.short_id,
+            Text(_owner_cell(v)),
+            Text(v.task),
+            v.due_date.isoformat() if v.due_date else NO_VALUE,
+            "⚠ overdue" if overdue else v.status,
+            str(len(v.sources)),
+            style="red" if overdue else None,
+        )
+    output.out.print(table)
+    n_overdue = sum(v.status == "overdue" for v in views)
+    output.info(f"{len(views)} items ({n_overdue} overdue)")
+
+
+def _owner_cell(v: ItemView) -> str:
+    if v.owner_key is not None:
+        return v.owner_display or v.owner_key
+    if Flag.AMBIGUOUS_OWNER in v.flags and v.owner_raw:
+        return f"? {v.owner_raw} (ambiguous)"
+    return NO_VALUE
+
+
+def _item_json(v: ItemView) -> dict[str, Any]:
+    owner = None if v.owner_key is None else {"key": v.owner_key, "name": v.owner_display}
+    return {
+        "id": v.id,
+        "short_id": v.short_id,
+        "owner": owner,
+        "task": v.task,
+        "due_date": None if v.due_date is None else v.due_date.isoformat(),
+        "status": v.status,
+        "flags": list(v.flags),
+        "sources": [
+            {
+                "path": s.path.as_posix(),
+                "line": s.line_no,
+                "meeting_date": s.meeting_date.isoformat(),
+                "title": s.note_title,
+            }
+            for s in v.sources
+        ],
+    }
+
+
+def _done(app_ctx: AppContext, item_id: str) -> None:
+    from actiontrack.services.query import mark_done
+    from actiontrack.store.db import connect
+
+    output = app_ctx.output
+    conn = connect(app_ctx.config.db_path)
+    try:
+        view, changed = mark_done(conn, item_id, clock=app_ctx.clock)
+    finally:
+        conn.close()
+    if not changed:
+        output.info(f"{view.short_id} is already done.")
+        return
+    owner = f"  ({view.owner_display})" if view.owner_display else ""
+    output.data(f"✓ {view.short_id}  {view.task}{owner}")
 
 
 class _RichProgress:
