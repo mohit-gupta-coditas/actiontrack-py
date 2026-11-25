@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
-| **Status** | In progress. M0, M1, M2, M3, M4, M5 and M6 done |
+| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6 and M7 done |
 | **Date** | 2026-11-25 |
 
 ---
@@ -97,14 +97,14 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 
 These came up while writing the module specs. Each has a **proposed resolution**, which the module specs already assume.
 Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
-(root spec §6, §8).
+(root spec §6, §8), and G4 with M7 (root spec §9.1).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
 | G1 ✅ | An attendee listed only by first name, with no email, has no person key. `people.email` is `NOT NULL` in §8 | Person key = `name:<firstname>` for such attendees. `people.email` becomes nullable. `followup` for them fails with "cannot derive email" | M2, M6, M11 |
 | G2 ✅ | Incremental ingest needs the parsed fields of every source to regroup items, and §8 `item_sources` stores only raw text | `item_sources` stores the parsed fields (owner_key, task, task_norm, due, checked, flags). PK becomes `(note_path, line_no)`, and `item_id` is reassigned on every regroup. Grouping always re-runs over **all** sources, so a change in config (threshold) applies everywhere | M5, M6, M7 |
 | G3 | Are `orphaned` items shown in `list` and included in `followup`? | Hidden from the default `list` (shown with `--flag orphaned`) and excluded from `followup` | M8, M11 |
-| G4 | A note file that was deleted from the folder | Its sources are removed and its items become `orphaned`. Only files under the scanned root are affected, so ingesting a different folder orphans nothing | M7 |
+| G4 ✅ | A note file that was deleted from the folder | Its sources are removed and its items become `orphaned`. Only files under the scanned root are affected, so ingesting a different folder orphans nothing | M7 |
 | G5 | A single-token owner that is not in the attendees (`Vikram to …`) | `owner_key = NULL`, flags `owner_not_attendee` + `unassigned`, `owner_raw` kept. A full name gets a derived key | M2, M4 |
 | G6 | Meaning of `next Friday` (said on a Wednesday) | The occurrence in the **following calendar week** (Mon-start). `this Friday` / `Friday` = the next occurrence strictly after | M3 |
 | G7 | In the subject `N open, M overdue`, does N include the overdue items? | N = open items that are **not** overdue. Total = N + M | M9 |
