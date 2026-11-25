@@ -68,7 +68,7 @@ class McpConfig:
     url: str | None = None
     draft_tool: str = "create_draft"
     arg_names: Mapping[str, str] = {"to": "to", "subject": "subject", "body": "body"}
-    to_as_list: bool = False
+    to_as_list: bool = True       # the Gmail connector's shape (G20)
     timeout_s: float = 30.0
 
 @dataclass(frozen=True)

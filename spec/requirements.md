@@ -311,16 +311,19 @@ Extra command: `actiontrack config show` (§13.6).
   args      = ["-y", "<gmail-mcp-server>"]
   url       = ""                 # http: server URL
   draft_tool = "create_draft"
+  to_as_list = true              # the Gmail connector takes `to` as a list (G20)
   ```
-- Auth/OAuth is handled by the MCP server. The CLI stores no Google credentials.
+- The server is the **Gmail MCP connector** (Q6): `create_draft(to: [str], subject, body)` returning `id`, `threadId`, `viewUrl`.
+- Auth/OAuth is handled by the MCP server or a bridge in front of it; `[gmail_mcp]` points at an endpoint that is already
+  authenticated. The CLI reads and stores no Google credentials (G22).
 - Targets the `mcp` 2.x SDK (`mcp>=2.3,<3`) (G16).
 - Before calling the tool, the client checks that `draft_tool` is in `list_tools()` (following pagination) and fails with a clear
   message if it is not. It also checks the tool's input schema: the mapped argument names must exist, and the tool must not
   require any argument the client does not send (G8, G18).
 - Timeout of 30 s. On a connection failure the rendered email is saved to `<user_data_dir>/outbox/<owner>-<ts>.eml` so the work
   is not lost, and the command exits 3. `<owner>` is a filename-safe slug of the owner key (G17).
-- The draft link is the one the server returns (`link`/`url`) when present, otherwise
-  `https://mail.google.com/mail/#drafts?compose=<id>` (G19).
+- The draft link is the one the server returns (`viewUrl`, `link` or `url`) when present, otherwise
+  `https://mail.google.com/mail/#drafts?compose=<id>` (G19, G21).
 
 ### 10.2 No-send guarantee
 - The MCP adapter exposes **only** a `create_draft(to, subject, body)` method. No generic `call_tool` is available to the
@@ -510,7 +513,7 @@ args = []
 | Q3 | Owner not in the attendees list | Kept, flagged `owner_not_attendee`. Email derived from the full name if available |
 | Q4 | Multi-part / hyphenated surnames in email derivation | Parts joined with `.`, accents removed |
 | Q5 | Does `followup` also include items with `ambiguous_owner` whose candidates include this person? | No, they are excluded until resolved |
-| Q6 | Which Gmail MCP server is used (exact launch command / URL) | Configurable. It must expose `create_draft(to, subject, body)` |
+| Q6 ✅ | Which Gmail MCP server is used (exact launch command / URL) | The Gmail MCP connector: `create_draft(to: [str], subject, body)`. The endpoint is configurable and already authenticated (G20–G22); confirmed in M12's smoke test |
 | Q7 | Multiple owners on one line ("Priya and Rahul to …") | The first owner is kept. Flag `multi_owner` |
 | Q8 | Non-ISO dates like `03/04/2026` | Read day-first (3 April). Configurable |
 

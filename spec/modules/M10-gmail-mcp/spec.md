@@ -55,7 +55,7 @@ def write_outbox(*, outbox_dir: Path, owner_key: str, to: str, subject: str, bod
 5. `self._call(tool_name, args)`. **`_call` checks `ALLOWED_TOOLS` first** and raises `ForbiddenToolError` for anything else (REQ-MCP-03).
 6. Result `is_error` → `ExternalServiceError` with the text content.
 7. Parse the draft ID: `structured_content.id` / `draftId` / `draft.id`, else a JSON object in the first text content with the same
-   keys, else None (a non-string ID is converted with `str`). Link (G19): a `link` / `url` string from the same object when present,
+   keys, else None (a non-string ID is converted with `str`). Link (G19, G21): a `viewUrl` / `link` / `url` string (in that order) when present,
    else `https://mail.google.com/mail/#drafts?compose=<id>` when an ID was found, else None.
 8. Timeout, connection error, process launch failure, MCP protocol error → `ExternalServiceError` (exit 3) (REQ-MCP-04).
    Errors raised inside the SDK's task groups arrive as `ExceptionGroup`s and are unwrapped first. `ForbiddenToolError` is
@@ -75,4 +75,7 @@ never overwrites an existing file (adds `-2`, `-3`…). M11 calls it when `creat
 Rendering (M9). Deciding when to draft (M11). Installing or authenticating the MCP server.
 
 ## 5. Open questions
-Q6: the real Gmail MCP server's command/URL and `create_draft` argument schema need to be confirmed before M12's manual smoke test.
+Q6 (answered, G20–G22): the server is the **Gmail MCP connector**. Its `create_draft` takes `to` (array), `subject`, `body`
+(all optional; also `cc`, `bcc`, `htmlBody`, `attachments`, `includeSignature`) and returns `id`, `threadId`, `viewUrl`. The
+defaults match it (`to_as_list = true`). The adapter stays auth-free: `[gmail_mcp]` points at an endpoint (http `url` or a
+stdio bridge `command`) that already handles OAuth. The exact endpoint is confirmed in M12's manual smoke test.

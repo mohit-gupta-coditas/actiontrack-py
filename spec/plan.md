@@ -99,7 +99,7 @@ These came up while writing the module specs. Each has a **proposed resolution**
 Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
 (root spec §6, §8), G4 with M7 (root spec §9.1), G3 and G11 with M8 (root spec §9.2, §9.4),
 G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11),
-and G8, G16, G17, G18 and G19 with M10 (root spec §10.1).
+and G8, G16–G22 with M10 (root spec §10.1).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -122,6 +122,9 @@ and G8, G16, G17, G18 and G19 with M10 (root spec §10.1).
 | G17 ✅ | The outbox file name's `<owner-key-slug>` rule was undefined | Lowercase; runs of chars outside `[a-z0-9._-]` → `-`; trim `-`/`.`; empty → `unknown`. Timestamp = `now` in its own timezone | M10, M11 |
 | G18 ✅ | The draft tool's schema may `require` arguments the client does not send | Fail before calling with `ExternalServiceError` naming them | M10 |
 | G19 ✅ | A Gmail API draft ID is usually not the compose ID, so the built `#drafts?compose=<id>` link may not open the draft | Use a `link`/`url` returned by the server when present; otherwise the built link | M10 |
+| G20 ✅ | The real server is the Gmail MCP connector (Q6), whose `create_draft` takes `to` as an array, but `to_as_list` defaulted to false | `McpConfig.to_as_list` defaults to `true`; other servers set it to false | M0, M10 |
+| G21 ✅ | The connector returns the draft link as `viewUrl`, which the G19 parser ignored | Link keys are `viewUrl`, `link`, `url`, in that order | M10 |
+| G22 ✅ | The connector is hosted and needs OAuth, and the adapter has no auth (REQ-MCP-05) | The adapter stays auth-free: `[gmail_mcp]` points at an already-authenticated endpoint (http `url` or stdio bridge). The endpoint is confirmed in M12's smoke test | M10, M12 |
 
 ## 6. Traceability check (run before each PR)
 
