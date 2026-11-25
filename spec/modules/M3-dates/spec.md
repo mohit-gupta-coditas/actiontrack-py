@@ -32,7 +32,7 @@ Searched case-insensitively. When several phrases match, the **last** one in the
 | Standalone keyword | `\b(EOD|EOW|EOM|end of (?:the )?(day|week|month)|end of next week|tomorrow|today|next week|ASAP)\b` | `send deck EOW` |
 | Bare ISO date | `\b\d{4}-\d{2}-\d{2}\b` | `ship 2026-12-01` |
 
-`<expr>` runs to the end of the text, or to the first `,` `;` `(` or ` - `, with trailing `.`/`!` removed.
+`<expr>` runs to the end of the text, or to the first `,` `;` `(` `)` or ` - `, with trailing `.`/`!` removed.
 `due_raw` = the matched phrase as written (e.g. `by Friday`).
 
 Overlapping matches: a keyword, bare ISO date or `on` phrase that ends where a longer phrase ends is part of that phrase

@@ -47,9 +47,18 @@ and collapses whitespace.
 3. **`@mention` anywhere** (only if rule 1 didn't match): the first `@handle` → owner = handle. The mention is removed from the text.
 4. Otherwise owner_raw = None.
 
+Details settled while implementing:
+- A name token is never `and`; `and` is only a separator between owners (this also keeps the match linear).
+- A label before the owner is skipped: when the connector is `:` and the rest itself starts with a name and a non-`:`
+  connector, that inner name is the owner (`Sub-task: Priya will check numbers` → Priya). `Rahul Mehta: book venue` is
+  unaffected because `book venue` has no leading name.
+- An `@handle` preceded by a word character, `.` or `@` (an email address) is not a mention. A trailing `.` is not part
+  of the handle.
+
 **Due**: `extract_due(rest, anchor=note.meeting_date)` (M3). The phrase at `span` is removed from `rest`.
 
-**Task**: what's left of `rest`, trimmed of surrounding whitespace, `,;:-–—` and a trailing `.`. Original casing is kept.
+**Task**: what's left of `rest`, with brackets the due phrase leaves empty removed (`book venue (due 2026-12-01)` →
+`book venue`), trimmed of surrounding whitespace, `,;:-–—` and a trailing `.`. Original casing is kept.
 Empty → `LineWarning(EMPTY_TASK)`, no item.
 
 **Owner resolution**: `roster.resolve(owner_raw)` (M2).
