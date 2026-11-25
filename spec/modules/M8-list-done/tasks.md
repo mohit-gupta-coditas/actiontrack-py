@@ -3,8 +3,8 @@
 Branch: `feat/m8-list-done`
 
 - [ ] **T8.1 `seeded_db` fixture** (built through the M6 repos, not raw SQL) in `tests/integration/conftest.py`.
-- [ ] **T8.2 Write failing tests** TC-M8-01 … TC-M8-24.
-- [ ] **T8.3 `resolve_owner_query`** (0 / 1 / many with candidate hint). → TC-M8-04 … 07
+- [ ] **T8.2 Write failing tests** TC-M8-01 … TC-M8-25.
+- [ ] **T8.3 `resolve_owner_query`** (0 / 1 / many with candidate hint, item owners via `PeopleRepo.find`, G11). → TC-M8-04 … 07, 25
 - [ ] **T8.4 `list_items` service**: filter building, `--due-before` parsing, contradiction checks, `ItemView` mapping, short ids.
       → TC-M8-01 … 03, 08 … 13
 - [ ] **T8.5 Table renderer** (overdue style + marker, footer on stderr, empty message). → TC-M8-14, 15, 18
