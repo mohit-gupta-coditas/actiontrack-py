@@ -101,7 +101,7 @@ Once a gap is confirmed, the root spec is updated and the gap is marked resolved
 G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11),
 G8, G16–G22 with M10 (root spec §10.1),
 Q5 and G23–G27 with M11 (root spec §9.4, §17, §19),
-and G28–G36 with M12 (root spec §13.1, §13.4, §13.5, §17).
+and G28–G37 with M12 (root spec §13.1, §13.4, §13.5, §17).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -140,7 +140,8 @@ and G28–G36 with M12 (root spec §13.1, §13.4, §13.5, §17).
 | G33 ✅ | TC-M12-05 queries `--owner Rahul`, which is ambiguous (exit 2) because the sample has Rahul Mehta and Rahul Verma | The fixture note's only attendee is Rahul Mehta, and the test queries `--owner "Rahul Mehta"` | M12 |
 | G34 ✅ | `expected.yaml` has no expected due per duplicate, and nothing checks `min_unique_items` | Each duplicate may carry a hand-computed `due` (D8) and `status`. TC-M12-01 checks the report's unique count ≥ `min_unique_items` | M12 |
 | G35 ✅ | On Windows, `FORCE_COLOR` on a pipe makes rich use legacy Win32 console calls, so no ANSI reaches the pipe (TC-M12-06) | With `FORCE_COLOR` set, the consoles use `legacy_windows=False`: forced colour is ANSI on every OS | M0 |
-| G36 ✅ | `actiontrack list \| head -3` prints `Error: internal error (OSError)` and exits 1 when the reader closes the pipe | A closed stdout ends the command quietly: stdout → `os.devnull`, exit 0, nothing on stderr | M0 |
+| G36 ✅ | `actiontrack list \| head -3` prints `Error: internal error (OSError)` and exits 1 when the reader closes the pipe | A closed stdout ends the command quietly: stdout → `os.devnull`, exit 0, nothing on stderr. A bare `EPIPE` outside rich keeps Typer's quiet exit 1 | M0 |
+| G37 ✅ | Every sample note's H1 is `# Meeting: <title>`, so emails read `From: Meeting: QA sync, …` | The H1 title drops a leading `Meeting:` / `Notes:` label (case-insensitive). Frontmatter titles are kept as written. Stored titles refresh when a note changes | M1 |
 
 ## 6. Traceability check (run before each PR)
 

@@ -31,7 +31,7 @@ def parse_meeting_date(text: str, *, date_order: Literal["DMY", "MDY"]) -> date 
 | 7. Frontmatter | If line 1 is exactly `---` (trailing whitespace allowed): find the next line that is `---` or `...`. YAML-parse the block with `yaml.safe_load` | No closing fence, YAML error, or a result that isn't a mapping → `INVALID_FRONTMATTER`, `line_no` = the YAML error line (offset into the file) |
 | 8. Body | All lines after the frontmatter (or every line if there is none), keeping the **original file line numbers** | — |
 | 9. Meeting date | The first one found from: (a) frontmatter `date` (a YAML date or a string); (b) a body line matching `^\s*\**date\**\s*:\s*(.+)$` (case-insensitive) before the first checkbox line; (c) the first H1 (`# …`) containing a date substring | No candidate → `MISSING_DATE`. Candidate but `parse_meeting_date` gives None → `UNPARSEABLE_DATE` (detail = the raw value) |
-| 10. Title | Frontmatter `title`, else the H1 text with the date and separators (`—`, `-`, `:`, `|`) removed, else None | — |
+| 10. Title | Frontmatter `title`, else the H1 text with a leading `Meeting:` / `Notes:` label (case-insensitive) and the date and separators (`—`, `-`, `:`, `|`) removed, else None (G37) | — |
 | 11. Attendees | The first one found from: (a) frontmatter `attendees` / `participants` (a list, or a string split on `,`/`;`); (b) a body line `Attendees:` / `Participants:` (case-insensitive, optional bold) with a `,`/`;` list; (c) a heading `## Attendees` / `## Participants` followed by a bullet list (ends at the next heading or a blank line after the bullets). Entries are trimmed, empties dropped, order kept | No non-empty entry → `MISSING_ATTENDEES` |
 
 ### `parse_meeting_date`

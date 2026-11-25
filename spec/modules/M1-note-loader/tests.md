@@ -29,3 +29,4 @@ bytes matter (BOM, CRLF, binary).
 | TC-M1-22 | Any valid note | `load_note` twice | Same `sha256`. File mtime and contents unchanged | REQ-GEN-03 |
 | TC-M1-23 | Unreadable path (a directory, or a permission error via monkeypatch) | `load_note` | `READ_ERROR`, no exception | REQ-NOTE-06 |
 | TC-M1-24 | 20k-line generated note | `load_note` | Completes in < 1 s | REQ-NOTE-01 |
+| TC-M1-25 | H1 `# Meeting: QA sync`, `# notes: Retro — 2026-11-18`, `# Meeting:` | `load_note` | Titles `QA sync`, `Retro`, None. A frontmatter `title: Meeting: X` is kept as written (G37) | REQ-NOTE-02 |

@@ -132,7 +132,8 @@ def configure_stdio_utf8() -> None     # sys.stdout/stderr.reconfigure(encoding=
   - `ActionTrackError` → `Error: <message>` (+ `Hint: <hint>`) on stderr, `exit(e.exit_code)`.
   - `KeyboardInterrupt` → `Interrupted` on stderr, exit 130.
   - stdout closed by its reader (rich's broken-pipe hook, `BrokenPipeError`, or on Windows an `OSError` after which stdout can't
-    be flushed) → stdout is pointed at `os.devnull`, nothing is printed, exit 0 (G36).
+    be flushed) → stdout is pointed at `os.devnull`, nothing is printed, exit 0 (G36). A bare `EPIPE` raised outside rich (e.g. while
+    Typer prints help) is caught by Typer itself, which exits 1, also quietly.
   - Any other `Exception` → `Error: internal error (<TypeName>). Re-run with --debug for details.`, exit 1.
   - `--debug` / `ACTIONTRACK_DEBUG=1` → also print the full traceback to stderr.
 - `config show` prints each effective key, its value and its source (`flag/env/file/default`). `--json` is supported.
