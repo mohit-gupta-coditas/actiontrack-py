@@ -37,7 +37,8 @@ def parse_meeting_date(text: str, *, date_order: Literal["DMY", "MDY"]) -> date 
 ### `parse_meeting_date`
 1. If the text contains an ISO date `\d{4}-\d{2}-\d{2}` → `date.fromisoformat`.
 2. Else `dateparser.parse` (lazy import) with `{"STRICT_PARSING": True, "DATE_ORDER": date_order, "PREFER_DAY_OF_MONTH": "first",
-   "REQUIRE_PARTS": ["day", "month", "year"]}`, so a meeting date must have day, month **and** year.
+   "REQUIRE_PARTS": ["day", "month", "year"], "PARSERS": ["absolute-time"]}`, so a meeting date must have day, month
+   **and** year. Relative words (`today`, `tomorrow`, `in 2 days`) are rejected: they would tie the date to the run's clock.
 3. Return `date` or None. Never raises.
 
 ## 4. Edge cases
