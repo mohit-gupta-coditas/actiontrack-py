@@ -1,4 +1,4 @@
-"""In-process fake Gmail MCP servers for the M10 tests (M10 tests.md).
+"""In-process fake Gmail MCP servers for the M10 tests (M10 tests.md), and a fake sink for M11.
 
 Every fake exposes `create_draft` next to the tools that must never be called (`send_message`,
 `reply`, `forward`) and records each call it receives. Every fake built is kept in `FAKES`, so a
@@ -17,6 +17,9 @@ import mcp.types as types
 from mcp import ClientSession
 from mcp.client._memory import InMemoryTransport
 from mcp.server import Server
+
+from actiontrack.config import McpConfig
+from actiontrack.email.gmail_mcp import DraftResult
 
 FORBIDDEN = ("send_message", "reply", "forward")
 
@@ -95,3 +98,26 @@ class FakeGmail:
                 yield session
 
         return open_session
+
+
+@dataclass
+class RecordingSink:
+    """A fake `DraftSink` (M11): records each draft, then returns `result` or raises `error`."""
+
+    result: DraftResult = field(
+        default_factory=lambda: DraftResult("r-123", "https://mail.example/r-123", {})
+    )
+    error: Exception | None = None
+    drafts: list[dict[str, str]] = field(default_factory=list)
+    configs: list[McpConfig] = field(default_factory=list)
+
+    def factory(self, cfg: McpConfig) -> RecordingSink:
+        """Stands in for `GmailMcpDraftSink` as the `sink_factory`."""
+        self.configs.append(cfg)
+        return self
+
+    def create_draft(self, *, to: str, subject: str, body: str) -> DraftResult:
+        self.drafts.append({"to": to, "subject": subject, "body": body})
+        if self.error is not None:
+            raise self.error
+        return self.result

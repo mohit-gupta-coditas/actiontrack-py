@@ -18,3 +18,8 @@ Location: `tests/integration/test_followup.py` and `tests/integration/test_cli_f
 | TC-M11-11 | Rahul as in 01 | `followup Rahul` | Item statuses unchanged afterwards | REQ-FU-06 |
 | TC-M11-12 | **End-to-end with the M10 fake MCP server** (real `GmailMcpDraftSink`) | `followup Rahul` | The fake recorded exactly 1 `create_draft`, 0 `send_message`/`reply`/`forward` | REQ-FU-06, REQ-GEN-01 |
 | TC-M11-13 | `followup "Priya Nair"` with two Priyas | `followup` | Resolves uniquely, draft to `priya.nair@coditas.com` | REQ-FU-01 |
+| TC-M11-14 | An `ambiguous_owner` item whose candidates include Priya Shah | `followup "Priya Shah"` | The email does not list it (Q5) | REQ-FU-02 |
+| TC-M11-15 | Rahul as in 01 | `followup Rahul` | Each item is tagged `[<short id>]` with the same prefix `list` prints (G23) | REQ-FU-04 |
+| TC-M11-16 | Sink returning a `DraftResult` with no ID and no link | `followup Rahul` | Exit 0, `drafts` row with `gmail_draft_id` NULL, stdout says no draft ID was returned (G24) | REQ-FU-06 |
+| TC-M11-17 | `[gmail_mcp] transport = "http"` with no `url` (real factory) | `followup Rahul` | Exit 2, `gmail_mcp.url is not set`, no outbox file, no `drafts` row (G25) | REQ-FU-06 |
+| TC-M11-18 | The `drafts` insert fails after the sink returned a draft | `followup Rahul` | Exit 1, the error names the draft link, exactly 1 `create_draft` call, no outbox (G26) | REQ-FU-06 |

@@ -30,4 +30,4 @@ Location: `tests/unit/core/` (CLI tests use `typer.testing.CliRunner` with `mix_
 | TC-M0-24 | stdout wrapped with cp1252 encoding | `configure_stdio_utf8()` then print `⚠ Pérez` | No `UnicodeEncodeError` | REQ-CLI-09 |
 | TC-M0-25 | Each dataclass in `models.py` | try to set an attribute | `FrozenInstanceError` | contracts |
 | TC-M0-26 | `IngestReport` built with sample data | `to_json()` → `json.dumps` | Serializes; flags/reasons as strings, dates ISO | contracts |
-| TC-M0-27 | Stub command `ingest` (before M7) | invoke | `Error: not implemented`, exit 1 | REQ-CLI-06 |
+| TC-M0-27 | Stub command `ingest` (before M7) | invoke | `Error: not implemented`, exit 1. Retired with M11: no stub is left | REQ-CLI-06 |

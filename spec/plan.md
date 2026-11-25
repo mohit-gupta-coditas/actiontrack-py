@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
-| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7, M8, M9 and M10 done |
+| **Status** | In progress. M0–M11 done |
 | **Date** | 2026-11-25 |
 
 ---
@@ -90,7 +90,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 | M8 | Draft | ☑ | ☑ | ☑ | [#8](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8) |
 | M9 | Draft | ☑ | ☑ | ☑ | [#9](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9) |
 | M10 | Draft | ☑ | ☑ | ☑ | [#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10) |
-| M11 | Draft | ☐ | ☐ | ☐ | — |
+| M11 | Draft | ☑ | ☑ | ☑ | [#11](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/11) |
 | M12 | Draft | ☐ | ☐ | ☐ | — |
 
 ## 5. Spec gaps found while decomposing
@@ -99,7 +99,8 @@ These came up while writing the module specs. Each has a **proposed resolution**
 Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
 (root spec §6, §8), G4 with M7 (root spec §9.1), G3 and G11 with M8 (root spec §9.2, §9.4),
 G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11),
-and G8, G16–G22 with M10 (root spec §10.1).
+G8, G16–G22 with M10 (root spec §10.1),
+and Q5 and G23–G27 with M11 (root spec §9.4, §17, §19).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -125,6 +126,11 @@ and G8, G16–G22 with M10 (root spec §10.1).
 | G20 ✅ | The real server is the Gmail MCP connector (Q6), whose `create_draft` takes `to` as an array, but `to_as_list` defaulted to false | `McpConfig.to_as_list` defaults to `true`; other servers set it to false | M0, M10 |
 | G21 ✅ | The connector returns the draft link as `viewUrl`, which the G19 parser ignored | Link keys are `viewUrl`, `link`, `url`, in that order | M10 |
 | G22 ✅ | The connector is hosted and needs OAuth, and the adapter has no auth (REQ-MCP-05) | The adapter stays auth-free: `[gmail_mcp]` points at an already-authenticated endpoint (http `url` or stdio bridge). The endpoint is confirmed in M12's smoke test | M10, M12 |
+| G23 ✅ | Which short ID the follow-up email shows for each item | The same prefix `list` prints: `shortest_unique_prefixes` over all item IDs (≥ 6 chars) | M11 |
+| G24 ✅ | The MCP server creates a draft but returns neither an ID nor a link | Still a success: `drafts` row with `gmail_draft_id` NULL, stdout says the server returned no draft ID, exit 0 | M11 |
+| G25 ✅ | `[gmail_mcp]` is misconfigured (no `url`/`command`, non-allowlisted `draft_tool`) | The adapter's config error surfaces as is (exit 2, or 1 for `ForbiddenToolError`). No outbox file: nothing was attempted | M11 |
+| G26 ✅ | The draft is created but recording the `drafts` row fails (DB locked) | `FatalError` (exit 1) whose message names the draft's link or ID. No outbox, no second draft | M11 |
+| G27 ✅ | An item with an unparsed due phrase (`ASAP`) has no `due_date`, so the email reads `(no due date)` | Kept for now (no M9 change). Showing the raw phrase is future work (root spec §19) | M9, M11 |
 
 ## 6. Traceability check (run before each PR)
 
