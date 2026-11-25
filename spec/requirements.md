@@ -404,7 +404,8 @@ Exit codes: `0` ok, `1` fatal, `2` user input error (bad ID/owner/filter), `3` e
 The tool follows widely accepted CLI conventions (see [clig.dev](https://clig.dev)). These are requirements, not suggestions.
 
 ### 13.1 Packaging & installation
-- Packaged with `pyproject.toml` (PEP 621) and a `[project.scripts] actiontrack = "actiontrack.cli:app"` entry point.
+- Packaged with `pyproject.toml` (PEP 621) and a `[project.scripts] actiontrack = "actiontrack.cli:main"` entry point
+  (`main` wraps the Typer app with UTF-8 stdio and the exit-code mapping, G31).
   `python -m actiontrack` also works (`__main__.py`).
 - Installable as an isolated tool: `pipx install .` / `uv tool install .`. Dependencies are locked (`uv.lock`) for reproducible builds.
 - Semantic versioning. `actiontrack --version` prints the version and exits 0.
@@ -520,7 +521,7 @@ args = []
 | Q3 | Owner not in the attendees list | Kept, flagged `owner_not_attendee`. Email derived from the full name if available |
 | Q4 | Multi-part / hyphenated surnames in email derivation | Parts joined with `.`, accents removed |
 | Q5 ✅ | Does `followup` also include items with `ambiguous_owner` whose candidates include this person? | No, they are excluded until resolved (confirmed with M11) |
-| Q6 ✅ | Which Gmail MCP server is used (exact launch command / URL) | The Gmail MCP connector: `create_draft(to: [str], subject, body)`. The endpoint is configurable and already authenticated (G20–G22); confirmed in M12's smoke test |
+| Q6 ✅ | Which Gmail MCP server is used (exact launch command / URL) | The Gmail MCP connector: `create_draft(to: [str], subject, body)`. The endpoint is configurable and already authenticated (G20–G22); confirmed by the manual smoke test documented in the README, which gates the `v0.1.0` tag (G29) |
 | Q7 | Multiple owners on one line ("Priya and Rahul to …") | The first owner is kept. Flag `multi_owner` |
 | Q8 | Non-ISO dates like `03/04/2026` | Read day-first (3 April). Configurable |
 

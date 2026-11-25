@@ -100,7 +100,8 @@ Once a gap is confirmed, the root spec is updated and the gap is marked resolved
 (root spec §6, §8), G4 with M7 (root spec §9.1), G3 and G11 with M8 (root spec §9.2, §9.4),
 G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11),
 G8, G16–G22 with M10 (root spec §10.1),
-and Q5 and G23–G27 with M11 (root spec §9.4, §17, §19).
+Q5 and G23–G27 with M11 (root spec §9.4, §17, §19),
+and G28–G31 with M12 (root spec §13.1, §17).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -131,6 +132,10 @@ and Q5 and G23–G27 with M11 (root spec §9.4, §17, §19).
 | G25 ✅ | `[gmail_mcp]` is misconfigured (no `url`/`command`, non-allowlisted `draft_tool`) | The adapter's config error surfaces as is (exit 2, or 1 for `ForbiddenToolError`). No outbox file: nothing was attempted | M11 |
 | G26 ✅ | The draft is created but recording the `drafts` row fails (DB locked) | `FatalError` (exit 1) whose message names the draft's link or ID. No outbox, no second draft | M11 |
 | G27 ✅ | An item with an unparsed due phrase (`ASAP`) has no `due_date`, so the email reads `(no due date)` | Kept for now (no M9 change). Showing the raw phrase is future work (root spec §19) | M9, M11 |
+| G28 ✅ | The sample `notes/` folder is not in the repo, and `expected.yaml` can only be written by reading it | The user provides the real folder (no synthetic set). Until `notes/` and `tests/e2e/expected.yaml` exist, the e2e tests that need them **skip with a reason**, and M12's DoD stays unticked | M12 |
+| G29 ✅ | The manual Gmail smoke test (T12.10) needs an authenticated MCP endpoint the CLI can reach, which CI and the agent lack | The README documents the exact steps. The PR lists T12.10 as pending, and `v0.1.0` is tagged only after the user confirms the draft appeared and nothing was sent | M12 |
+| G30 ✅ | `trace_check.py` must detect REQ IDs owned by more than one module, but nothing says where ownership is read from; §18 also has a range row (`REQ-ACC-01..11`) | Ownership comes from the `REQ IDs owned` column of plan §2. Ranges (`CLI-01..07`, `REQ-ACC-01..11`) are expanded in both files | M12 |
+| G31 ✅ | Root §13.1 names the entry point `actiontrack.cli:app`, but the code uses `actiontrack.cli:main` | `cli:main`: it adds UTF-8 stdio and the exit-code mapping. The root spec is fixed | M0, M12 |
 
 ## 6. Traceability check (run before each PR)
 
