@@ -10,4 +10,4 @@ Branch: `feat/m1-note-loader`
 - [x] **T1.6 Meeting date sources** (frontmatter → `Date:` line → H1) + title derivation. → TC-M1-01 … 03, 07, 08
 - [x] **T1.7 Attendee sources** (frontmatter list/string → inline line → heading list). → TC-M1-01, 02, 04, 10, 11
 - [x] **T1.8 Performance check** on a large note. → TC-M1-24
-- [ ] **T1.9 Quality gate**: ruff, mypy, coverage ≥ 90%. Update the status board, open the PR.
+- [x] **T1.9 Quality gate**: ruff, mypy, coverage ≥ 90%. Update the status board, open the PR.
