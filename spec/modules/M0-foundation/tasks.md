@@ -19,4 +19,4 @@ Branch: `feat/m0-foundation`
       → TC-M0-12 … 16
 - [x] **T0.10 `config show`** (table + `--json`). → TC-M0-11
 - [x] **T0.11 Lazy-import guard**: check the import graph. → TC-M0-23
-- [ ] **T0.12 Quality gate**: ruff, `mypy --strict`, coverage ≥ 80%. Update the `plan.md` status board, open the PR.
+- [x] **T0.12 Quality gate**: ruff, `mypy --strict`, coverage ≥ 80%. Update the `plan.md` status board, open the PR.

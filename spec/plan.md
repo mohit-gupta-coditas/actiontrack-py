@@ -79,7 +79,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 
 | Module | Spec | Tests written | Implemented | DoD | PR |
 |---|---|---|---|---|---|
-| M0 | Draft | ☑ | ☑ | ☑ | — |
+| M0 | Draft | ☑ | ☑ | ☑ | Pushed directly to main (7ba9395) |
 | M1 | Draft | ☑ | ☑ | ☑ | [#1](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/1) |
 | M2 | Draft | ☐ | ☐ | ☐ | — |
 | M3 | Draft | ☐ | ☐ | ☐ | — |
