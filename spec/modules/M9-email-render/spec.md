@@ -47,7 +47,7 @@ Overdue ({{ overdue|length }}):
   From: {{ meeting_title or "Meeting" }}, {{ meeting_date }}
 
 Open ({{ open|length }}):
-- {{ task }} (due {{ due or "no due date" }}) [{{ short_id }}]
+- {{ task }} ({% if due %}due {{ due }}{% else %}no due date{% endif %}) [{{ short_id }}]
   From: {{ meeting_title or "Meeting" }}, {{ meeting_date }}
 
 Could you reply with an update, or let me know if any of these should be reassigned or closed?
@@ -55,6 +55,7 @@ Could you reply with an update, or let me know if any of these should be reassig
 {{ sign_off }}
 ```
 - An empty section is left out entirely.
+- An open item with no due date reads `(no due date)`, not `(due no due date)` (G15).
 - Sort order: overdue items by due date ascending (most overdue first), then short_id. Open items by due date ascending with no-due last,
   then short_id.
 - Dates are in ISO format (`2026-11-20`). `days` = `(today - due).days`, with "day" singular when it is 1.
@@ -67,4 +68,5 @@ Could you reply with an update, or let me know if any of these should be reassig
 Recipient resolution, MCP (M10/M11).
 
 ## 6. Open questions
-None. G7 (meaning of N), G12 (template name), G13 (invalid overdue item) and G14 (trailing whitespace) were confirmed with M9.
+None. G7 (meaning of N), G12 (template name), G13 (invalid overdue item), G14 (trailing whitespace) and G15 (no-due wording) were
+confirmed with M9.

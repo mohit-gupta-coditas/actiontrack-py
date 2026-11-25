@@ -1,0 +1,14 @@
+Hi Priya,
+
+Here is a summary of the action items assigned to you in recent meetings.
+
+Overdue (2):
+- Book the venue (due 2026-11-10, 15 days overdue) [c3d4]
+  From: Meeting, 2026-11-04
+- Send the budget draft (due 2026-11-20, 5 days overdue) [a1b2]
+  From: Kickoff, 2026-11-02
+
+Could you reply with an update, or let me know if any of these should be reassigned or closed?
+
+Thanks,
+Mohit

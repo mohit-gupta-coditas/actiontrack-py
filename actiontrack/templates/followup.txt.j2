@@ -1,0 +1,23 @@
+Hi {{ first_name }},
+
+Here is a summary of the action items assigned to you in recent meetings.
+
+{% if overdue %}
+Overdue ({{ overdue|length }}):
+{% for i in overdue %}
+- {{ i.task }} (due {{ i.due }}, {{ i.days }} {{ "day" if i.days == 1 else "days" }} overdue) [{{ i.short_id }}]
+  From: {{ i.meeting_title or "Meeting" }}, {{ i.meeting_date }}
+{% endfor %}
+
+{% endif %}
+{% if open %}
+Open ({{ open|length }}):
+{% for i in open %}
+- {{ i.task }} ({% if i.due %}due {{ i.due }}{% else %}no due date{% endif %}) [{{ i.short_id }}]
+  From: {{ i.meeting_title or "Meeting" }}, {{ i.meeting_date }}
+{% endfor %}
+
+{% endif %}
+Could you reply with an update, or let me know if any of these should be reassigned or closed?
+
+{{ sign_off }}

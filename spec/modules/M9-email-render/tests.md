@@ -11,7 +11,7 @@ Location: `tests/unit/email/test_render.py`. Snapshots in `tests/unit/email/snap
 | TC-M9-05 | Both empty | `render_followup` | `ValueError` | REQ-FU-04 |
 | TC-M9-06 | Overdue items due 11-20 and 11-10 given in that order | `render_followup` | 11-10 listed first. `15 days overdue` / `5 days overdue` | REQ-FU-04 |
 | TC-M9-07 | Overdue by exactly 1 day | `render_followup` | `1 day overdue` | REQ-FU-04 |
-| TC-M9-08 | Open item with no due + one with a due | `render_followup` | The dated one first. `no due date` text | REQ-FU-04 |
+| TC-M9-08 | Open item with no due + one with a due | `render_followup` | The dated one first. The undated one reads `(no due date)` (G15) | REQ-FU-04 |
 | TC-M9-09 | Item with `meeting_title=None` | `render_followup` | `From: Meeting, 2026-11-18` | REQ-FU-04 |
 | TC-M9-10 | Same inputs | render 2× | Identical subject + body bytes | REQ-FU-04 |
 | TC-M9-11 | Any output | — | No line ends with whitespace. Body ends with exactly one `\n`. Contains `sign_off` | REQ-FU-04 |

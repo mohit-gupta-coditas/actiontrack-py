@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
-| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7 and M8 done |
+| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7, M8 and M9 done |
 | **Date** | 2026-11-25 |
 
 ---
@@ -88,7 +88,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 | M6 | Draft | ☑ | ☑ | ☑ | [#6](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/6) |
 | M7 | Draft | ☑ | ☑ | ☑ | [#7](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/7) |
 | M8 | Draft | ☑ | ☑ | ☑ | [#8](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8) |
-| M9 | Draft | ☐ | ☐ | ☐ | — |
+| M9 | Draft | ☑ | ☑ | ☑ | — |
 | M10 | Draft | ☐ | ☐ | ☐ | — |
 | M11 | Draft | ☐ | ☐ | ☐ | — |
 | M12 | Draft | ☐ | ☐ | ☐ | — |
@@ -98,7 +98,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 These came up while writing the module specs. Each has a **proposed resolution**, which the module specs already assume.
 Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
 (root spec §6, §8), G4 with M7 (root spec §9.1), G3 and G11 with M8 (root spec §9.2, §9.4),
-and G7, G12, G13 and G14 with M9 (root spec §9.4, §11).
+and G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -116,6 +116,7 @@ and G7, G12, G13 and G14 with M9 (root spec §9.4, §11).
 | G12 ✅ | The root spec names the template `followup.md.j2`, and the M9 spec names it plain-text `followup.txt.j2` | `templates/followup.txt.j2` (plain text). The root spec is renamed | M9 |
 | G13 ✅ | An `overdue` item passed to the renderer with no due date, or one not before `today` | `render_followup` raises `ValueError` (a caller bug, like both sections being empty) | M9, M11 |
 | G14 ✅ | A `sign_off` or task with trailing spaces breaks "no trailing whitespace" | Every rendered line is right-stripped, and the body ends with exactly one `\n` | M9 |
+| G15 ✅ | The M9 template `(due {{ due or "no due date" }})` reads "(due no due date)" for an undated item | Undated open items read `(no due date)`; dated ones `(due 2026-11-28)` | M9 |
 
 ## 6. Traceability check (run before each PR)
 
