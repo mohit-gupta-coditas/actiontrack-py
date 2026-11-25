@@ -131,7 +131,8 @@ Example input: `- [ ] Priya Shah to send the revised quote by Friday` in a note 
 5. A name that is not in the attendees list → stored as given, with the flag `owner_not_attendee`.
    *(Assumption: action items are sometimes assigned to people who were not in the meeting.)*
 
-**Canonical person key** = lowercased email if known, otherwise `firstname.lastname` (D13). This key is used for dedup,
+**Canonical person key** = lowercased email if known, otherwise the derived `firstname.lastname@<domain>` (D13), otherwise
+`name:<firstname>` for an attendee given only by first name, who then has no email (G1). This key is used for dedup,
 `--owner` filtering and `followup`.
 
 ## 7. Deduplication (D7, D8)
@@ -158,24 +159,26 @@ Default DB path: `<user_data_dir>/actiontrack.db` via `platformdirs` (§13.6). O
 ```sql
 CREATE TABLE notes (
   path          TEXT PRIMARY KEY,
-  sha256        TEXT NOT NULL,
+  sha256        TEXT,               -- NULL only for a skipped note that could not be read
   meeting_date  DATE,
   title         TEXT,
   ingested_at   TIMESTAMP NOT NULL,
   status        TEXT NOT NULL CHECK (status IN ('ok','skipped')),
-  skip_reason   TEXT
+  skip_reason   TEXT,
+  skip_detail   TEXT
 );
 
 CREATE TABLE people (
-  key           TEXT PRIMARY KEY,   -- email lowercased
+  key           TEXT PRIMARY KEY,   -- email lowercased | derived email | "name:<first>" (G1)
   full_name     TEXT NOT NULL,
   first_name    TEXT NOT NULL,
-  email         TEXT NOT NULL
+  email         TEXT                -- explicit or derived; NULL for a first-name-only attendee (G1)
 );
 
 CREATE TABLE items (
   id            TEXT PRIMARY KEY,   -- full sha1 hex; CLI shows a short prefix
-  owner_key     TEXT REFERENCES people(key),  -- NULL = unassigned/ambiguous
+  owner_key     TEXT,               -- NULL = unassigned/ambiguous
+  owner_display TEXT,
   owner_raw     TEXT,
   task          TEXT NOT NULL,      -- display text
   task_norm     TEXT NOT NULL,
@@ -189,22 +192,35 @@ CREATE TABLE items (
   last_seen     DATE NOT NULL
 );
 
+-- One row per checkbox occurrence, holding its parsed fields so that every ingest can regroup all
+-- sources (G2). item_id is reassigned on each regroup.
 CREATE TABLE item_sources (
-  item_id       TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-  note_path     TEXT NOT NULL REFERENCES notes(path),
-  line_no       INTEGER NOT NULL,
-  raw_text      TEXT NOT NULL,
-  meeting_date  DATE NOT NULL,
-  due_date      DATE,
-  PRIMARY KEY (item_id, note_path, line_no)
+  note_path        TEXT NOT NULL REFERENCES notes(path) ON DELETE CASCADE,
+  line_no          INTEGER NOT NULL,
+  item_id          TEXT REFERENCES items(id) ON DELETE SET NULL,
+  raw_text         TEXT NOT NULL,
+  meeting_date     DATE NOT NULL,
+  note_title       TEXT,
+  owner_key        TEXT,
+  owner_display    TEXT,
+  owner_raw        TEXT,
+  owner_flags      TEXT NOT NULL DEFAULT '[]',   -- JSON array
+  owner_candidates TEXT NOT NULL DEFAULT '[]',   -- JSON array (ambiguous owner)
+  task             TEXT NOT NULL,
+  due_date         DATE,
+  due_raw          TEXT,
+  checked          INTEGER NOT NULL,
+  flags            TEXT NOT NULL DEFAULT '[]',   -- JSON array
+  PRIMARY KEY (note_path, line_no)
 );
 
 CREATE TABLE drafts (
-  id            INTEGER PRIMARY KEY,
-  owner_key     TEXT NOT NULL,
+  id             INTEGER PRIMARY KEY,
+  owner_key      TEXT NOT NULL,
+  recipient      TEXT NOT NULL,
   gmail_draft_id TEXT,
-  created_at    TIMESTAMP NOT NULL,
-  item_ids      TEXT NOT NULL       -- JSON array
+  created_at     TIMESTAMP NOT NULL,
+  item_ids       TEXT NOT NULL      -- JSON array
 );
 ```
 
