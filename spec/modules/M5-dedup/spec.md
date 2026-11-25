@@ -58,10 +58,15 @@ for each source s:
 - Comparing against the group's **canonical** norm (not every member) prevents chain merges (A≈B, B≈C, A≉C).
 - Items with no owner can only merge exactly (REQ-DEDUP-04).
 - Items with `AMBIGUOUS_OWNER` have `owner_key=None`. They merge exactly with each other only when their `candidates` are also equal.
+  Internally a group's **identity** is the `owner_key`, or `?<sorted candidates joined by ,>` for an ambiguous owner, or `None`.
+  The identity (not the bare `owner_key`) is what groups compare and what goes into `make_item_id`, so two ambiguous items with the
+  same task but different candidates get different IDs.
 
 **Existing items**: before the loop, each `ExistingItem` seeds an empty "shell" group with its `id`, `owner_key` and `task_norms`.
-Shells take part in the exact and fuzzy steps (canonical = the alphabetically smallest of its `task_norms`) and keep their ID. A shell
-that gets no members goes into `orphaned_ids` (REQ-INGEST-04 is applied by M7/M6).
+Shells take part in the exact and fuzzy steps (canonical = the alphabetically smallest of its `task_norms`) and keep their ID. Shells
+are seeded in `id` order. A source that would otherwise start a new group joins the shell whose `id` equals the ID that new group would
+get (this is how an ambiguous-owner item finds its shell, since `ExistingItem` has no candidates). A shell that gets no members (or has
+no `task_norms`) goes into `orphaned_ids`, sorted (REQ-INGEST-04 is applied by M7/M6).
 
 ## 5. Merged fields (REQ-DEDUP-05)
 
@@ -70,9 +75,9 @@ that gets no members goes into `orphaned_ids` (REQ-INGEST-04 is applied by M7/M6
 | `id` | The shell's existing ID if any, else `make_item_id(owner_key, canonical_norm)` (REQ-ID-01) |
 | `task` / `task_norm` | From the first member (earliest) |
 | `owner_display` / `owner_raw` | From the latest member |
-| `due_date` / `due_raw` | From the member with the latest `meeting_date` that has a `due_date`. Ties → highest `line_no` (D8) |
+| `due_date` / `due_raw` | From the member with the latest `meeting_date` that has a `due_date`. Ties → highest `line_no` (D8). If no member has a `due_date`, `due_raw` comes from the latest member with an (unparsed) phrase, e.g. `ASAP` |
 | `status` | `done` if the existing item is done (any source), **or** any member is `checked`. Otherwise `open` |
-| `done_source` / `done_at` | Kept from the existing item when it is `cli`. Else `note` if any member is checked |
+| `done_source` / `done_at` | Kept from the existing item when it is done (`cli` or `note`). Else `note` with `done_at=None` if any member is checked |
 | `flags` | Union of owner flags (`UNASSIGNED`, `AMBIGUOUS_OWNER`, `OWNER_NOT_ATTENDEE`, `MULTI_OWNER`) across members. `NO_DUE` only if no member has a due phrase. `UNPARSED_DUE` only if `due_date` is None and some member had an unparsed phrase |
 | `first_seen` / `last_seen` | min / max member `meeting_date` |
 | `sources` | All members, in processing order |
@@ -84,7 +89,8 @@ that gets no members goes into `orphaned_ids` (REQ-INGEST-04 is applied by M7/M6
   More than one match → `UserInputError('id "<p>" matches N items', hint=<list of short ids>)`.
 
 ## 7. Decision log (REQ-DEDUP-06)
-One `MergeDecision` for every source that **joined** an existing group: `item_id`, `kind`, `score`, `source=(path, line)`,
+One `MergeDecision` for every source that **joined** a group that already had a member (the first source to land in an existing-item
+shell is not a merge, so an unchanged re-ingest does not report every item as merged): `item_id`, `kind`, `score`, `source=(path, line)`,
 `matched_task_norm`. M7 prints these with `-v`.
 
 ## 8. Out of scope
