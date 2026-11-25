@@ -308,8 +308,13 @@ Extra command: `actiontrack config show` (§13.6).
 
 ```
 actiontrack/
+├── __main__.py          # python -m actiontrack
 ├── cli.py               # Typer app; argument parsing and output only
 ├── config.py            # TOML config + env overrides
+├── models.py            # shared dataclasses passed between modules (contracts)
+├── errors.py            # typed errors + ExitCode
+├── clock.py             # Clock protocol, SystemClock, FixedClock
+├── console.py           # stdout/stderr consoles, logging setup
 ├── parsing/
 │   ├── note_loader.py   # read file, encoding check, frontmatter/heading → NoteMeta
 │   ├── items.py         # checkbox detection, owner/due/task extraction
@@ -484,7 +489,95 @@ args = []
 | Q7 | Multiple owners on one line ("Priya and Rahul to …") | The first owner is kept. Flag `multi_owner` |
 | Q8 | Non-ISO dates like `03/04/2026` | Read day-first (3 April). Configurable |
 
-## 18. Future Work
+## 18. Requirement Index
+
+Stable IDs for traceability. Module specs under `spec/modules/` reference these IDs, and each ID is owned by exactly one module (see `spec/plan.md`).
+
+| ID | Requirement | Source |
+|---|---|---|
+| REQ-GEN-01 | The tool never sends email. Only drafts are created | §2, §10.2 |
+| REQ-GEN-02 | Bad input never crashes the tool: skip, report, continue | §2, §12 |
+| REQ-GEN-03 | Source notes are read-only. The tool never writes to them | §2 |
+| REQ-NOTE-01 | Accept the YAML frontmatter note layout | §4.1 A |
+| REQ-NOTE-02 | Accept the heading / inline-field note layout | §4.1 B |
+| REQ-NOTE-03 | Meeting date from frontmatter, `Date:` line or H1. ISO first, then strict DMY | §4.1 |
+| REQ-NOTE-04 | Skip a note with a missing or unparseable meeting date | §4.1, D11 |
+| REQ-NOTE-05 | Skip a note with no attendees | D11 |
+| REQ-NOTE-06 | Skip a note with broken frontmatter, invalid encoding, an empty file or binary content | D11, §12 |
+| REQ-NOTE-07 | Handle UTF-8 BOM and CRLF/CR line endings | §13.8 |
+| REQ-ITEM-01 | Detect checkbox lines. `[ ]` → open, `[x]` → done | §4.2 |
+| REQ-ITEM-02 | Skip malformed checkbox lines with a line-level warning | §4.2, D11 |
+| REQ-ITEM-03 | Ignore checkboxes inside fenced code blocks | §4.2 |
+| REQ-ITEM-04 | Extract the owner via connector words or `@mention` | §5 |
+| REQ-ITEM-05 | The task is the body minus owner, connector and due phrase | §5 |
+| REQ-ITEM-06 | Several owners on one line → the first is kept, flag `multi_owner` | Q7 |
+| REQ-ITEM-07 | No owner → flag `unassigned`. No due phrase → flag `no_due` | D10 |
+| REQ-DATE-01 | Detect the due phrase (`by/before/due/on/until …`, EOD, EOW, ISO, `12 Dec`) | §5 |
+| REQ-DATE-02 | Resolve relative due dates against the meeting date | D6 |
+| REQ-DATE-03 | A weekday name resolves to the next occurrence strictly after the meeting date | §5.1, Q1 |
+| REQ-DATE-04 | EOD / EOW / next week / end of month rules | §5.1 |
+| REQ-DATE-05 | Unparseable due phrase → `due_date` NULL, flag `unparsed_due`, keep `due_raw` | §5.1 |
+| REQ-DATE-06 | Numeric non-ISO dates are read day-first (configurable) | Q8 |
+| REQ-PEOPLE-01 | Parse attendees as a name with an optional email | §4.1, §6 |
+| REQ-PEOPLE-02 | Owner match order: email/handle → full name → first name + initial → unique first name | §6 |
+| REQ-PEOPLE-03 | An ambiguous first name → no owner, flag `ambiguous_owner`, candidates kept | §6, D9 |
+| REQ-PEOPLE-04 | An owner not in the attendees is kept with the flag `owner_not_attendee` | §6, Q3 |
+| REQ-PEOPLE-05 | Canonical person key (lowercased email) | §6 |
+| REQ-PEOPLE-06 | Email derivation `firstname.lastname@<domain>`, accents stripped, multi-part names | D13, Q4 |
+| REQ-DEDUP-01 | Task normalization | §5 |
+| REQ-DEDUP-02 | Exact pass: same owner + same normalized task | §7 |
+| REQ-DEDUP-03 | Fuzzy pass: same owner, `token_set_ratio ≥ threshold`. Configurable, `--no-fuzzy` | §7 |
+| REQ-DEDUP-04 | Items with no owner are never fuzzy-merged | §7 |
+| REQ-DEDUP-05 | Merge rules: all sources kept, latest due wins, done is sticky, first/last seen | §7, D8 |
+| REQ-DEDUP-06 | Merge decisions are logged with their score | §7 |
+| REQ-ID-01 | Content-hash item IDs that stay the same across re-ingest and rebuild | §8.1 |
+| REQ-ID-02 | 6-char display. Any unique prefix of 4+ chars accepted. Ambiguity is an error | §8.1 |
+| REQ-STORE-01 | SQLite schema | §8 |
+| REQ-STORE-02 | Overdue is derived, never stored | §8 |
+| REQ-STORE-03 | Migrations via `PRAGMA user_version` | §8 |
+| REQ-STORE-04 | DB path from platformdirs, overridable with `--db` / `ACTIONTRACK_DB` | §8, §13.6 |
+| REQ-STORE-05 | WAL mode + busy timeout | §13.8 |
+| REQ-STORE-06 | Indexes for the main queries | §13.7 |
+| REQ-INGEST-01 | Recursive `*.md` scan, `--no-recursive` | §9.1 |
+| REQ-INGEST-02 | Unchanged files (same sha256) are skipped | §9.1, D12 |
+| REQ-INGEST-03 | A changed file has its sources replaced | §9.1 |
+| REQ-INGEST-04 | Items that lose all their sources are flagged `orphaned`, never deleted | §9.1 |
+| REQ-INGEST-05 | A CLI-set `done` is never reset by ingest | §9.1, D12 |
+| REQ-INGEST-06 | One transaction per file. A failure in one file doesn't affect the others | §9.1, §12 |
+| REQ-INGEST-07 | Ingest report: text on stdout plus `--report-json` | §9.1 |
+| REQ-INGEST-08 | Ingest exits 0 when files are skipped, 1 on fatal errors | §9.1 |
+| REQ-INGEST-09 | Progress bar on stderr, TTY only | §13.4 |
+| REQ-LIST-01 | Filters: `--owner`, `--status`, `--due-before`, `--unassigned`, `--flag` | §9.2 |
+| REQ-LIST-02 | Default view and sort order | §9.2 |
+| REQ-LIST-03 | Table columns, overdue in red + `⚠` | §9.2 |
+| REQ-LIST-04 | `--json` with `schema_version` | §9.2, §13.4 |
+| REQ-LIST-05 | An ambiguous `--owner` prints the candidates and exits 2 | §9.2 |
+| REQ-DONE-01 | `done <prefix>` marks the item done (`done_source=cli`) | §9.3 |
+| REQ-DONE-02 | Already done → notice, exit 0. Unknown/ambiguous → exit 2 | §9.3 |
+| REQ-FU-01 | Followup resolves the owner. Ambiguous/unknown → error, no draft | §9.4 |
+| REQ-FU-02 | Select open + overdue items. None → no draft | §9.4 |
+| REQ-FU-03 | Recipient: the attendee's email or a derived one. First name only → error | §9.4, D13 |
+| REQ-FU-04 | Deterministic template: subject plus overdue and open sections | §9.4, D5 |
+| REQ-FU-05 | `--dry-run` prints the email and makes no MCP call | §9.4 |
+| REQ-FU-06 | Create the draft, print its ID/link, record it in `drafts` | §9.4 |
+| REQ-MCP-01 | MCP client over stdio or HTTP, from config | §10.1 |
+| REQ-MCP-02 | Check the draft tool exists via `list_tools()` | §10.1 |
+| REQ-MCP-03 | Only `create_draft` is exposed. Allowlist → `ForbiddenToolError` | §10.2 |
+| REQ-MCP-04 | 30 s timeout. On failure write the outbox `.eml` and exit 3 | §10.1 |
+| REQ-MCP-05 | The CLI stores no credentials | §10.1, §13.6 |
+| REQ-CLI-01 | Packaging, entry point, `python -m`, `--version` | §13.1 |
+| REQ-CLI-02 | Help with examples, usage when no args, completion, typo suggestions | §13.3 |
+| REQ-CLI-03 | stdout for data, stderr for everything else | §13.4 |
+| REQ-CLI-04 | TTY-aware colour, `NO_COLOR`, `--no-color`, `-q`, `-v/-vv` | §13.4 |
+| REQ-CLI-05 | Readable errors. Traceback only with `--debug` | §13.5 |
+| REQ-CLI-06 | Exit codes 0/1/2/3/130. Ctrl-C rolls back | §12, §13.5 |
+| REQ-CLI-07 | Config precedence, platformdirs locations, `config show` | §13.6 |
+| REQ-CLI-08 | `list`/`done`/`--help` start in < 300 ms (lazy imports) | §13.7 |
+| REQ-CLI-09 | Portable paths, UTF-8 output on Windows | §13.4, §13.8 |
+| REQ-CLI-10 | An injectable `Clock`. `ACTIONTRACK_TODAY` override | §13.8, §14 |
+| REQ-ACC-01..11 | Acceptance criteria 1–11 | §16 |
+
+## 19. Future Work
 - `reopen <id>` and `assign <id> <owner>` commands (to fix ambiguous/unassigned items).
 - A `people.yaml` override for aliases/nicknames.
 - Optional LLM polish of the email body.
