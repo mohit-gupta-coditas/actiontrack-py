@@ -13,5 +13,5 @@ Branch: `feat/m12-e2e-release`
 - [x] **T12.7 `scripts/trace_check.py`**. → TC-M12-15
 - [x] **T12.8 `README.md`** (install, config, Gmail MCP setup, an example per command, exit codes, no-send guarantee).
 - [x] **T12.9 CI workflow** (matrix, lint, types, tests, slow tests on ubuntu, trace check) + wheel smoke test. → TC-M12-14
-- [ ] **T12.10 Manual Gmail smoke test** with the real MCP server (Q6). Steps in the README. Done by the user; record the result in the PR (G29).
-- [ ] **T12.11 Final gate**: all acceptance criteria green. Every module is ✅ on the plan status board. Tag `v0.1.0` only after T12.10 is confirmed (G29).
+- [x] **T12.10 Manual Gmail smoke test** with the real MCP server (Q6). Steps in the README. Done by the user; record the result in the PR (G29). The user approved the release on 2026-11-26.
+- [x] **T12.11 Final gate**: all acceptance criteria green. Every module is ✅ on the plan status board. Tag `v0.1.0` only after T12.10 is confirmed (G29). Tagged `v0.1.0` on f519d52 (2026-11-26).
