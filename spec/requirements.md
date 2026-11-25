@@ -284,7 +284,8 @@ Extra command: `actiontrack config show` (§13.6).
 
 ### 9.4 `actiontrack followup <owner>`
 1. Resolves the owner (same rules as `--owner`). An ambiguous or unknown owner → error, no draft.
-2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3). If there are none → message, no draft.
+2. Selects that owner's **open + overdue** items, excluding orphaned ones (G3) and `ambiguous_owner` items, which have no
+   owner until resolved (Q5). If there are none → message, no draft.
 3. Resolves the recipient (D13):
    - the email from any attendees entry for this person, **or**
    - `firstname.lastname@coditas.com`, derived from the full name (lowercased, accents removed, spaces/hyphens in multi-part
@@ -295,9 +296,15 @@ Extra command: `actiontrack config show` (§13.6).
    - Subject: `Follow-up: your open action items (N open, M overdue)`, where N counts the open items that are **not**
      overdue, so the total is N + M (G7). With no overdue items it is `(N open)`.
    - Body: greeting, an **Overdue** section and then an **Open** section, each item with its task, due date and source meeting
-     (title + date), and a sign-off.
+     (title + date), and a sign-off. Each item is tagged with the same short ID `list` prints (G23). An item with an
+     unparsed due phrase (`ASAP`) reads `(no due date)` (G27).
 5. `--dry-run` prints the rendered email and does not call MCP.
 6. Otherwise it calls the Gmail MCP `create_draft` tool and prints the draft ID/link, then records a row in `drafts`.
+   - A draft returned with neither an ID nor a link still counts as created: the row is recorded with no draft ID (G24).
+   - A `[gmail_mcp]` config error (no `url`/`command`, a non-allowlisted `draft_tool`) fails before any MCP call with the
+     config error's exit code and writes no outbox file (G25). Only a failed MCP call writes the outbox and exits 3.
+   - If the draft was created but the `drafts` row cannot be written, the error (exit 1) names the draft's link or ID, so
+     the user knows it exists (G26).
 7. **It never sends** (see §10.2).
 
 ## 10. Gmail MCP Integration (D4)
@@ -512,7 +519,7 @@ args = []
 | Q2 | A note re-lists a CLI-done item as `[ ]` | It stays done (future: `reopen <id>`) |
 | Q3 | Owner not in the attendees list | Kept, flagged `owner_not_attendee`. Email derived from the full name if available |
 | Q4 | Multi-part / hyphenated surnames in email derivation | Parts joined with `.`, accents removed |
-| Q5 | Does `followup` also include items with `ambiguous_owner` whose candidates include this person? | No, they are excluded until resolved |
+| Q5 ✅ | Does `followup` also include items with `ambiguous_owner` whose candidates include this person? | No, they are excluded until resolved (confirmed with M11) |
 | Q6 ✅ | Which Gmail MCP server is used (exact launch command / URL) | The Gmail MCP connector: `create_draft(to: [str], subject, body)`. The endpoint is configurable and already authenticated (G20–G22); confirmed in M12's smoke test |
 | Q7 | Multiple owners on one line ("Priya and Rahul to …") | The first owner is kept. Flag `multi_owner` |
 | Q8 | Non-ISO dates like `03/04/2026` | Read day-first (3 April). Configurable |
@@ -609,4 +616,5 @@ Stable IDs for traceability. Module specs under `spec/modules/` reference these 
 - `reopen <id>` and `assign <id> <owner>` commands (to fix ambiguous/unassigned items).
 - A `people.yaml` override for aliases/nicknames.
 - Optional LLM polish of the email body.
+- Show an unparsed due phrase (`ASAP`) in the follow-up email instead of `(no due date)` (G27).
 - A watch mode that re-ingests when files change.
