@@ -1,0 +1,14 @@
+Hi Priya,
+
+Here is a summary of the action items assigned to you in recent meetings.
+
+Open (2):
+- Share the retro notes (due 2026-11-28) [9f8e]
+  From: Retro, 2026-11-16
+- Update the docs page (no due date) [e5f6]
+  From: Weekly sync, 2026-11-18
+
+Could you reply with an update, or let me know if any of these should be reassigned or closed?
+
+Thanks,
+Mohit
