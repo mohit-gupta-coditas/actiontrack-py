@@ -75,6 +75,18 @@ Accepted forms (surrounding whitespace, `*`/`_` emphasis and a trailing role in 
 - `José` vs `Jose` → equal after normalization.
 - The roster has one Priya, and the owner is `Priya Nair`, who isn't an attendee → rule 5, not rule 4.
 - Two attendees with identical full names and no emails → treated as the same person (same derived key).
+- Rules 1–4 use the same pick: one distinct key → that attendee; 2+ distinct keys → `{AMBIGUOUS_OWNER}` with the
+  sorted keys as `candidates` (e.g. `@ps` matching `ps@a.com` and `ps@b.com`, or two `Priya Shah`s with different emails).
+- An email owner that matches no attendee → key = the email lowercased, display = owner text, `{OWNER_NOT_ATTENDEE}`.
+- An `@handle` that matches no local part falls through to rules 2–6 with the handle read as a name
+  (`@rahul` → `Rahul`, `@vikram.rao` → `Vikram Rao`).
+- `First L.` where no attendee matches → key None, `{OWNER_NOT_ATTENDEE, UNASSIGNED}`. An initial is not a last name,
+  so no email is derived from it (rule 5 does not apply).
+- A multi-token owner whose email can't be derived (`Vikram ???`) → treated like rule 6.
+- A first-name-only attendee `Priya` matches the owner `Priya` by full name (rule 2), so a roster of `Priya` and
+  `Priya Shah` resolves `Priya` to `name:priya`, not to an ambiguity.
+- Only entries with the same key merge. `Priya Shah` and `Priya Shah <ps@client.com>` in one note stay two attendees
+  (a variant of gap G10).
 
 ## 7. Out of scope
 Finding the owner text inside an item line (M4). Cross-note aliasing (future `people.yaml`, gap G10).
