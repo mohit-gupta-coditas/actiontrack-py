@@ -145,7 +145,7 @@ def test_TC_M0_16_unexpected_exception(capsys: pytest.CaptureFixture[str]) -> No
     assert "secret detail" not in err
 
 
-@pytest.mark.parametrize("args", [["list"], ["done", "a3f"], ["followup", "priya"]])
+@pytest.mark.parametrize("args", [["followup", "priya"]])
 def test_TC_M0_27_stub_commands(args: list[str], capsys: pytest.CaptureFixture[str]) -> None:
     assert run(args) == 1
     assert "Error: not implemented" in capsys.readouterr().err

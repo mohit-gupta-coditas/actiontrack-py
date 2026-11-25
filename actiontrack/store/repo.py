@@ -212,13 +212,17 @@ class PeopleRepo:
         )
 
     def find(self, query: str) -> list[Person]:
-        """People whose key, email, full name or first name matches `query` (normalized)."""
+        """People whose key, email, full name or first name matches `query` (normalized).
+
+        Item owners with no `people` row (a full name that is not an attendee, G5) count as
+        people too, so their items can still be found by name (G11).
+        """
         q = normalize_name(query)
         if not q:
             return []
         return [
             p
-            for p in self._all()
+            for p in self._all() + self._item_owners()
             if q in (p.key.casefold(), (p.email or "").casefold())
             or q in (normalize_name(p.full_name), normalize_name(p.first_name))
         ]
@@ -229,6 +233,21 @@ class PeopleRepo:
 
     def _all(self) -> list[Person]:
         return [_person(r) for r in self._conn.execute("SELECT * FROM people ORDER BY key")]
+
+    def _item_owners(self) -> list[Person]:
+        rows = self._conn.execute(
+            """
+            SELECT owner_key, min(owner_display) AS display FROM items
+            WHERE owner_key IS NOT NULL AND owner_key NOT IN (SELECT key FROM people)
+            GROUP BY owner_key ORDER BY owner_key
+            """
+        )
+        people = []
+        for r in rows:
+            key, name = r["owner_key"], r["display"] or r["owner_key"]
+            email = key if "@" in key else None
+            people.append(Person(key=key, full_name=name, first_name=name.split()[0], email=email))
+        return people
 
 
 class ItemRepo:

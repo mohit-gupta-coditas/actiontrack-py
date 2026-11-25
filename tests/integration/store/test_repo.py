@@ -15,6 +15,7 @@ from actiontrack.models import (
     Flag,
     ItemGroup,
     OwnerResolution,
+    Person,
     SkipReason,
     SkipRecord,
 )
@@ -182,6 +183,32 @@ def test_TC_M6_11_find(conn: sqlite3.Connection) -> None:
     assert [p.key for p in people.find("rahul.mehta@coditas.com")] == [RAHUL]
     assert people.find("") == []
     assert people.find("nobody") == []
+
+
+def test_find_item_owners(conn: sqlite3.Connection) -> None:
+    """G11: owners that only appear on items (no `people` row) are found too."""
+    PeopleRepo(conn).upsert_many([attendee("Rahul Mehta", None)])
+    vikram = OwnerResolution(
+        "vikram.rao@coditas.com",
+        "Vikram Rao",
+        "Vikram Rao",
+        frozenset({Flag.OWNER_NOT_ATTENDEE}),
+        (),
+    )
+    stored(
+        conn,
+        group(src(vikram, "Send invoice", "2026-11-18", line=1)),
+        group(src(vikram, "Book cab", "2026-11-18", line=2)),
+        group(src(RAHUL, "Book room", "2026-11-18", line=3), owner_display="Rahul M"),
+    )
+    people = PeopleRepo(conn)
+    found = people.find("vikram")
+    assert found == [
+        Person("vikram.rao@coditas.com", "Vikram Rao", "Vikram", "vikram.rao@coditas.com")
+    ]
+    assert people.find("Vikram Rao") == found
+    assert people.find("vikram.rao@coditas.com") == found
+    assert [p.full_name for p in people.find("rahul")] == ["Rahul Mehta"]  # the people row wins
 
 
 # --- items: query ----------------------------------------------------------------------------
