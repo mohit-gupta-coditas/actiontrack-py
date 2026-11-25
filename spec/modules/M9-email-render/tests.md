@@ -16,3 +16,5 @@ Location: `tests/unit/email/test_render.py`. Snapshots in `tests/unit/email/snap
 | TC-M9-10 | Same inputs | render 2× | Identical subject + body bytes | REQ-FU-04 |
 | TC-M9-11 | Any output | — | No line ends with whitespace. Body ends with exactly one `\n`. Contains `sign_off` | REQ-FU-04 |
 | TC-M9-12 | Task containing `{{ x }}` and `<b>` | `render_followup` | Rendered literally (no template injection, no escaping) | REQ-FU-04 |
+| TC-M9-13 | An overdue item with `due_date=None`, or with a due date of today or later | `render_followup` | `ValueError` (G13) | REQ-FU-04 |
+| TC-M9-14 | `sign_off` and a task with trailing spaces | `render_followup` | No line ends with whitespace. The text is otherwise unchanged (G14) | REQ-FU-04 |

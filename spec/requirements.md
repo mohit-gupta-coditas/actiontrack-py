@@ -291,8 +291,9 @@ Extra command: `actiontrack config show` (§13.6).
      names joined with `.`, e.g. `Anna Maria Lopez` → `anna.maria.lopez@coditas.com`). *(Assumption about multi-part names; confirm.)*
    - Only a first name known → error `cannot derive email: no last name for "Priya"`.
    - The domain comes from config (`email.domain`, default `coditas.com`).
-4. Renders the email from a Jinja2 template (`templates/followup.md.j2`):
-   - Subject: `Follow-up: your open action items (N open, M overdue)`
+4. Renders the email from a plain-text Jinja2 template (`templates/followup.txt.j2`):
+   - Subject: `Follow-up: your open action items (N open, M overdue)`, where N counts the open items that are **not**
+     overdue, so the total is N + M (G7). With no overdue items it is `(N open)`.
    - Body: greeting, an **Overdue** section and then an **Open** section, each item with its task, due date and source meeting
      (title + date), and a sign-off.
 5. `--dry-run` prints the rendered email and does not call MCP.
@@ -350,7 +351,7 @@ actiontrack/
 ├── email/
 │   ├── render.py        # Jinja2 rendering
 │   └── gmail_mcp.py     # MCP client adapter (allowlisted create_draft only)
-└── templates/followup.md.j2
+└── templates/followup.txt.j2
 ```
 
 **Layering rules**

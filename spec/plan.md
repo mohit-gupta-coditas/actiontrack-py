@@ -97,7 +97,8 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 
 These came up while writing the module specs. Each has a **proposed resolution**, which the module specs already assume.
 Once a gap is confirmed, the root spec is updated and the gap is marked resolved here (✅). G1 and G2 were confirmed with M6
-(root spec §6, §8), G4 with M7 (root spec §9.1), and G3 and G11 with M8 (root spec §9.2, §9.4).
+(root spec §6, §8), G4 with M7 (root spec §9.1), G3 and G11 with M8 (root spec §9.2, §9.4),
+and G7, G12, G13 and G14 with M9 (root spec §9.4, §11).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -107,11 +108,14 @@ Once a gap is confirmed, the root spec is updated and the gap is marked resolved
 | G4 ✅ | A note file that was deleted from the folder | Its sources are removed and its items become `orphaned`. Only files under the scanned root are affected, so ingesting a different folder orphans nothing | M7 |
 | G5 | A single-token owner that is not in the attendees (`Vikram to …`) | `owner_key = NULL`, flags `owner_not_attendee` + `unassigned`, `owner_raw` kept. A full name gets a derived key | M2, M4 |
 | G6 | Meaning of `next Friday` (said on a Wednesday) | The occurrence in the **following calendar week** (Mon-start). `this Friday` / `Friday` = the next occurrence strictly after | M3 |
-| G7 | In the subject `N open, M overdue`, does N include the overdue items? | N = open items that are **not** overdue. Total = N + M | M9 |
+| G7 ✅ | In the subject `N open, M overdue`, does N include the overdue items? | N = open items that are **not** overdue. Total = N + M | M9 |
 | G8 | The Gmail MCP server's `create_draft` argument names/shapes are unknown (Q6) | Configurable argument mapping (`arg_names`, `to_as_list`), validated against the tool's `inputSchema` | M10 |
 | G9 | `ASAP` as a due phrase | Recognised. `due_date` NULL, flag `unparsed_due`, `due_raw = "ASAP"` | M3 |
 | G10 | The same person appears with an explicit email in one note and a derived email in another | Known limitation: two keys. Future work: `people.yaml` aliases | M2 |
 | G11 ✅ | An owner written as a full name who is not an attendee (G5) gets a derived key, but only attendees are stored in `people`, so `--owner` / `followup` could not find them | `PeopleRepo.find` also matches item owners missing from `people` (name = `owner_display`, email = the key if it is an email). Read-only: no schema or ingest change | M6, M8, M11 |
+| G12 ✅ | The root spec names the template `followup.md.j2`, and the M9 spec names it plain-text `followup.txt.j2` | `templates/followup.txt.j2` (plain text). The root spec is renamed | M9 |
+| G13 ✅ | An `overdue` item passed to the renderer with no due date, or one not before `today` | `render_followup` raises `ValueError` (a caller bug, like both sections being empty) | M9, M11 |
+| G14 ✅ | A `sign_off` or task with trailing spaces breaks "no trailing whitespace" | Every rendered line is right-stripped, and the body ends with exactly one `\n` | M9 |
 
 ## 6. Traceability check (run before each PR)
 
