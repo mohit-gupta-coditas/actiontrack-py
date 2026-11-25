@@ -35,6 +35,11 @@ Searched case-insensitively. When several phrases match, the **last** one in the
 `<expr>` runs to the end of the text, or to the first `,` `;` `(` or ` - `, with trailing `.`/`!` removed.
 `due_raw` = the matched phrase as written (e.g. `by Friday`).
 
+Overlapping matches: a keyword, bare ISO date or `on` phrase that ends where a longer phrase ends is part of that phrase
+and is not a candidate itself. So `by tomorrow`, `by end of next week`, `due 2026-12-01` and `due on 3 Dec` are kept
+whole, while in `follow up on Monday's notes by Friday` the later `by Friday` wins. A connector expression runs to the
+end of the text, so `by Monday then ship tomorrow` is one phrase, and it is unresolvable.
+
 ## 4. Resolution rules (REQ-DATE-02 … 06)
 
 Relative keywords are handled by **our own rules** (deterministic). Only absolute/calendar expressions go to `dateparser`.
@@ -58,6 +63,13 @@ In the table, A is the meeting date.
 
 `dateparser` settings: `RELATIVE_BASE=datetime.combine(A, time())`, `PREFER_DATES_FROM="future"`, `DATE_ORDER=date_order`,
 `STRICT_PARSING=False`, `RETURN_TIME_AS_PERIOD=False`. Lazily imported.
+
+- Only an expression that has a numeric date (`3/4`, `03/04/2027`) or a month name plus a digit (`12 Dec`) goes to
+  `dateparser`. Anything else (`the blue moon`, `12`, `the team`) is unresolvable without calling it.
+- Without a year, `dateparser`'s `future` skips the anchor day itself (`18 Nov` said on 18 Nov gives next year). So for a
+  year-less date only the day and month are taken from it, and the year is the first one where the date is on or after A
+  (`29 Feb` → the next leap year).
+- Weekday names accept the usual abbreviations (`Mon`, `Tues`, `Thurs`, ...).
 
 ## 5. Flags (REQ-DATE-05)
 - No phrase found → `due_date=None`, `due_raw=None`, flags `{NO_DUE}`, span None.
