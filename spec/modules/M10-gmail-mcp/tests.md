@@ -1,6 +1,6 @@
 # M10 — Test Cases
 
-Location: `tests/integration/test_gmail_mcp.py`. **Fake server**: an in-process `mcp.server.mcpserver.MCPServer` exposing `create_draft`,
+Location: `tests/integration/test_gmail_mcp.py`. **Fake server**: an in-process low-level `mcp.server.Server` (exact input schemas, paging and `is_error` results) exposing `create_draft`,
 `send_message`, `reply` and `forward`, each recording its calls into a shared list. It is connected through memory streams with a test
 `session_factory`. A variant fake has no `create_draft`, and others return `is_error`, sleep, use different argument names, require an
 extra argument, or page their tool list.
