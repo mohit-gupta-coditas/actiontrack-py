@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
-| **Status** | In progress. M0, M1, M2, M3, M4, M5, M6, M7, M8, M9 and M10 done, M11 in progress |
+| **Status** | In progress. M0–M11 done |
 | **Date** | 2026-11-25 |
 
 ---
@@ -90,7 +90,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 | M8 | Draft | ☑ | ☑ | ☑ | [#8](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/8) |
 | M9 | Draft | ☑ | ☑ | ☑ | [#9](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9) |
 | M10 | Draft | ☑ | ☑ | ☑ | [#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10) |
-| M11 | Draft | ☐ | ☐ | ☐ | — |
+| M11 | Draft | ☑ | ☑ | ☑ | — |
 | M12 | Draft | ☐ | ☐ | ☐ | — |
 
 ## 5. Spec gaps found while decomposing

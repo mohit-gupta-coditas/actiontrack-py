@@ -16,7 +16,17 @@ from actiontrack.store.db import MEMORY, connect
 from actiontrack.store.repo import ItemRepo, NoteRepo, PeopleRepo, SourceRepo
 from tests.unit.conftest import owner, src
 
-__all__ = ["SEEDED", "add_note", "group", "owner", "seed", "src", "store_sources"]
+__all__ = [
+    "FOLLOWUP",
+    "SEEDED",
+    "add_note",
+    "group",
+    "owner",
+    "seed",
+    "seed_followup",
+    "src",
+    "store_sources",
+]
 
 NOW = datetime(2026, 11, 25, 10, 0).astimezone()
 
@@ -151,3 +161,36 @@ def seeded_db(conn: sqlite3.Connection) -> sqlite3.Connection:
     """The M8 test DB (M8 tests.md): three people and nine items, built through the repos."""
     seed(conn)
     return conn
+
+
+# --- followup extras (M11) -------------------------------------------------------------------
+
+POOJA = "p.s@client.com"  # an explicit email, not the derived pooja.sen@coditas.com
+DEV = "dev.patel@coditas.com"  # every item done
+
+
+def _followup_groups() -> dict[str, ItemGroup]:
+    """Added to the seeded items: Rahul gets a second open item (2 open + 1 overdue in all)."""
+    note = "notes/2026-11-18-sync.md"
+    return {
+        "badges": group(src(_person(RAHUL, "Rahul Mehta"), "order the badges", "2026-11-18",
+                            line=11, due="2026-12-03", path=note)),
+        "logo": group(src(_person(POOJA, "Pooja Sen"), "approve the logo", "2026-11-18",
+                          line=12, path=note), flags=frozenset({Flag.NO_DUE})),
+        "minutes": group(src(_person(DEV, "Dev Patel"), "send the minutes", "2026-11-18",
+                             line=13, due="2026-11-19", checked=True, path=note), status="done"),
+    }  # fmt: skip
+
+
+FOLLOWUP: dict[str, str] = {name: g.id for name, g in _followup_groups().items()}
+
+
+def seed_followup(conn: sqlite3.Connection) -> None:
+    """`seed` plus Pooja Sen (explicit email), Dev Patel (all done) and Rahul's third item."""
+    seed(conn, *_followup_groups().values())
+    PeopleRepo(conn).upsert_many(
+        [
+            Attendee("Pooja Sen", "Pooja", "Sen", POOJA, POOJA, "pooja.sen@coditas.com"),
+            Attendee("Dev Patel", "Dev", "Patel", None, DEV, DEV),
+        ]
+    )

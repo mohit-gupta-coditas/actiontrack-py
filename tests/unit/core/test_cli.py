@@ -145,12 +145,6 @@ def test_TC_M0_16_unexpected_exception(capsys: pytest.CaptureFixture[str]) -> No
     assert "secret detail" not in err
 
 
-@pytest.mark.parametrize("args", [["followup", "priya"]])
-def test_TC_M0_27_stub_commands(args: list[str], capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(args) == 1
-    assert "Error: not implemented" in capsys.readouterr().err
-
-
 def test_callback_builds_app_context(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ACTIONTRACK_TODAY", "2026-11-18")
     seen: list[AppContext] = []

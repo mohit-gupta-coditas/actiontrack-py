@@ -30,7 +30,7 @@ from actiontrack import __version__
 from actiontrack.clock import Clock, clock_from_env
 from actiontrack.config import Config, load_config, settings_view
 from actiontrack.console import Output, configure_stdio_utf8, make_output
-from actiontrack.errors import ActionTrackError, ExitCode, FatalError, UserInputError
+from actiontrack.errors import ActionTrackError, ExitCode, UserInputError
 from actiontrack.models import JSON_SCHEMA_VERSION, Flag, to_jsonable
 
 if TYPE_CHECKING:
@@ -237,18 +237,25 @@ def create_app() -> typer.Typer:
 
     @app.command()
     def followup(
+        ctx: typer.Context,
         owner: Annotated[str, typer.Argument(help="Person key, email, full or first name.")],
+        dry_run: Annotated[
+            bool,
+            typer.Option("--dry-run", help="Print the email instead of creating a draft."),
+        ] = False,
     ) -> None:
         """Draft a follow-up email to an owner about their open items.
 
         Creates a Gmail draft (it never sends) with the owner's overdue and open items.
+        If the draft can't be created, the email is saved to the outbox folder (exit 3).
 
         \b
         Examples:
           actiontrack followup priya
-          actiontrack followup "Rahul Sharma" --dry-run
+          actiontrack followup "Rahul Mehta" --dry-run
         """
-        raise FatalError("not implemented")
+        app_ctx: AppContext = ctx.find_root().obj
+        _followup(app_ctx, owner, dry_run=dry_run)
 
     config_app = typer.Typer(
         context_settings=CONTEXT_SETTINGS,
@@ -467,6 +474,45 @@ def _done(app_ctx: AppContext, item_id: str) -> None:
         return
     owner = f"  ({view.owner_display})" if view.owner_display else ""
     output.data(f"✓ {view.short_id}  {view.task}{owner}")
+
+
+def _followup(app_ctx: AppContext, owner: str, *, dry_run: bool) -> None:
+    from actiontrack.email.gmail_mcp import GmailMcpDraftSink
+    from actiontrack.services.followup import run_followup
+    from actiontrack.store.db import connect
+
+    output = app_ctx.output
+    conn = connect(app_ctx.config.db_path)
+    try:
+        result = run_followup(
+            owner,
+            conn=conn,
+            cfg=app_ctx.config,
+            clock=app_ctx.clock,
+            dry_run=dry_run,
+            sink_factory=GmailMcpDraftSink,
+        )
+    finally:
+        conn.close()
+
+    email = result.email
+    if email is None:
+        output.info(f"No open items for {result.person.full_name}. No draft created.")
+        return
+    if result.draft is None:
+        output.data(f"To: {result.recipient}")
+        output.data(f"Subject: {email.subject}")
+        output.data("")
+        output.data(email.body.rstrip("\n"))
+        output.info("Dry run: no draft created.")
+        return
+    draft = result.draft
+    who = f"{result.person.full_name} <{result.recipient}>"
+    if draft.link or draft.draft_id:
+        output.data(f"Draft created for {who}: {draft.link or draft.draft_id}")
+    else:
+        output.data(f"Draft created for {who} (the server returned no draft ID)")  # G24
+    output.info("Review and send it from Gmail. actiontrack never sends email.")
 
 
 class _RichProgress:
