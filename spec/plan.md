@@ -91,7 +91,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 | M9 | Draft | ☑ | ☑ | ☑ | [#9](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/9) |
 | M10 | Draft | ☑ | ☑ | ☑ | [#10](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/10) |
 | M11 | Draft | ☑ | ☑ | ☑ | [#11](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/11) |
-| M12 | Draft | ☑ | ☑ | ☐ (CI perf run, T12.10 smoke test) | [#12](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/12) |
+| M12 | Draft | ☑ | ☑ | ☐ (T12.10 smoke test) | [#12](https://github.com/mohit-gupta-coditas/actiontrack-py/pull/12) |
 
 ## 5. Spec gaps found while decomposing
 
