@@ -1,3 +1,5 @@
 # Email snapshots are compared byte for byte, so keep them LF on every checkout.
 tests/unit/email/snapshots/*.txt text eol=lf
 actiontrack/templates/*.j2 text eol=lf
+# The sample notes are fixtures (M12): store them byte for byte, malformed ones included.
+notes/** -text

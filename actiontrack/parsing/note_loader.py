@@ -35,6 +35,7 @@ _BULLET = re.compile(r"^\s*[-*+]\s+(.*?)\s*$")
 _CHECKBOX = re.compile(r"^\s*[-*+]\s+\[[ xX]\]")
 _LIST_SEPARATORS = re.compile(r"[,;]")
 _TITLE_SEPARATORS = " \t\u2014\u2013-:|"  # em dash, en dash, hyphen, colon, pipe
+_TITLE_LABEL = re.compile(r"^\s*(?:meeting|notes)\s*:", re.IGNORECASE)  # "Meeting: QA sync" (G37)
 
 _MONTH = (
     r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
@@ -245,6 +246,7 @@ def _title(fm_title: Any, h1: str | None) -> str | None:
         return str(fm_title).strip()
     if h1 is None:
         return None
+    h1 = _TITLE_LABEL.sub("", h1, count=1)
     found = _H1_DATE.search(h1)
     if found is None:
         title = h1.strip(_TITLE_SEPARATORS)

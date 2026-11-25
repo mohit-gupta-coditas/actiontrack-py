@@ -346,6 +346,25 @@ def test_title_from_h1(tmp_path: Path, h1: str, title: str | None) -> None:
     assert load_ok(write(tmp_path, note)).title == title
 
 
+@pytest.mark.parametrize(
+    ("h1", "title"),
+    [
+        ("# Meeting: QA sync", "QA sync"),
+        ("# notes: Retro — 2026-11-18", "Retro"),
+        ("# Meeting:", None),
+        ("# Meetings recap", "Meetings recap"),
+    ],
+)
+def test_TC_M1_25_h1_title_drops_meeting_label(tmp_path: Path, h1: str, title: str | None) -> None:
+    note = f"{h1}\nDate: 2026-11-18\nAttendees: Priya\n"
+    assert load_ok(write(tmp_path, note)).title == title
+
+
+def test_TC_M1_25_frontmatter_title_keeps_label(tmp_path: Path) -> None:
+    note = "---\ntitle: 'Meeting: X'\ndate: 2026-11-18\nattendees: [Priya]\n---\n"
+    assert load_ok(write(tmp_path, note)).title == "Meeting: X"
+
+
 def test_inline_attendees_win_over_heading_list(tmp_path: Path) -> None:
     note = "# Sync 2026-11-18\n## Attendees\n- Anita\n\nAttendees: Priya, Rahul\n"
     assert load_ok(write(tmp_path, note)).attendees_raw == ("Priya", "Rahul")

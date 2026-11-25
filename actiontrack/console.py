@@ -6,6 +6,7 @@ stdout carries data only; messages, warnings, progress and logs go to stderr.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -14,6 +15,17 @@ from typing import Literal
 from rich.console import Console
 
 LOGGER_NAME = "actiontrack"
+
+
+class StdoutClosed(Exception):
+    """The reader of stdout went away (`actiontrack list | head -3`) (G36)."""
+
+
+class _Console(Console):
+    def on_broken_pipe(self) -> None:
+        # rich's default exits 1; the CLI boundary turns this into a quiet exit 0 instead.
+        self.quiet = True
+        raise StdoutClosed
 
 
 @dataclass
@@ -49,11 +61,46 @@ def make_output(*, no_color: bool, quiet: bool, verbosity: int, env: Mapping[str
     # colour when the stream is not a terminal.
     color = color_enabled(no_color=no_color, env=env)
     color_system: Literal["auto"] | None = "auto" if color else None
-    out = Console(color_system=color_system, no_color=not color, highlight=False)
-    err = Console(stderr=True, color_system=color_system, no_color=not color, highlight=False)
+    # Forced colour must be ANSI: legacy Win32 console calls never reach a pipe (G35).
+    legacy_windows = False if env.get("FORCE_COLOR") else None
+    out = _Console(
+        color_system=color_system,
+        no_color=not color,
+        highlight=False,
+        legacy_windows=legacy_windows,
+    )
+    err = _Console(
+        stderr=True,
+        color_system=color_system,
+        no_color=not color,
+        highlight=False,
+        legacy_windows=legacy_windows,
+    )
     output = Output(out=out, err=err, quiet=quiet, verbosity=verbosity)
     _configure_logging(output)
     return output
+
+
+def stdout_closed(error: BaseException) -> bool:
+    """Whether `error` means the reader of stdout has gone (G36)."""
+    if isinstance(error, StdoutClosed | BrokenPipeError):
+        return True
+    if not isinstance(error, OSError):
+        return False
+    try:  # on Windows a closed pipe raises OSError(EINVAL); the pending write fails again
+        sys.stdout.flush()
+    except OSError:
+        return True
+    return False
+
+
+def silence_stdout() -> None:
+    """Point stdout at the null device, so the interpreter's final flush can't fail."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    except (OSError, ValueError):  # no real file descriptor (e.g. under test capture)
+        pass
 
 
 def configure_stdio_utf8() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -11,6 +12,7 @@ from typer.testing import CliRunner
 
 from actiontrack import __version__, cli
 from actiontrack.cli import AppContext, create_app, run
+from actiontrack.console import StdoutClosed
 from actiontrack.errors import ExternalServiceError, UserInputError
 
 
@@ -168,3 +170,33 @@ def test_main_exits_with_run_code(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 0
+
+
+class _ClosedStdout(io.StringIO):
+    def flush(self) -> None:
+        raise OSError(22, "Invalid argument")
+
+
+def test_TC_M0_29_closed_stdout_exits_quietly(capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["boom"], app_=app_raising(StdoutClosed())) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_TC_M0_29_bare_epipe_is_typers_quiet_exit_1(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        run(["boom"], app_=app_raising(BrokenPipeError(32, "Broken pipe")))
+    assert exit_info.value.code == 1
+    assert capsys.readouterr().err == ""
+
+
+def test_TC_M0_29_windows_closed_pipe_exits_quietly(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "stdout", _ClosedStdout())
+    assert run(["boom"], app_=app_raising(OSError(22, "Invalid argument"))) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_other_oserror_is_still_an_internal_error(capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["boom"], app_=app_raising(OSError(13, "Permission denied"))) == 1
+    assert "internal error (PermissionError)" in capsys.readouterr().err

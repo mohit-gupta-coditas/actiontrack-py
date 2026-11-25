@@ -41,7 +41,7 @@ packages = ["actiontrack"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["spec"]
+extend-exclude = ["spec", "notes"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]

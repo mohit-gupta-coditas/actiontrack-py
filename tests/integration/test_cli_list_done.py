@@ -153,7 +153,7 @@ def test_TC_M8_14_table_no_color(seeded: Path, capsys: pytest.CaptureFixture[str
 def test_TC_M8_15_overdue_row_red(seeded: Path, capsys: pytest.CaptureFixture[str]) -> None:
     from actiontrack import console
 
-    real = console.Console
+    real = console._Console
 
     def forced(*args: Any, **kwargs: Any) -> Console:
         # A terminal with plain ANSI colours, also on Windows.
@@ -161,7 +161,7 @@ def test_TC_M8_15_overdue_row_red(seeded: Path, capsys: pytest.CaptureFixture[st
         return real(*args, **kwargs)
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(console, "Console", forced)
+        mp.setattr(console, "_Console", forced)
         assert run(["list"]) == 0
     lines = capsys.readouterr().out.splitlines()
     red = "[31m"
