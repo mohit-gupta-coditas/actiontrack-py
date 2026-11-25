@@ -150,5 +150,6 @@ class NoteRow:
 Deciding groups (M5). Deciding when to ingest (M7). Output formatting.
 
 ## 7. Open questions
-G1 and G2 need confirming in the root spec §8. This module also makes `notes.sha256` nullable (a note skipped with
-`READ_ERROR` has no hash, so it is retried on every ingest) and adds `notes.skip_detail` and `drafts.recipient`.
+None. G1 and G2 are confirmed in the root spec §8, together with the other schema changes this module makes: nullable
+`notes.sha256` (a note skipped with `READ_ERROR` has no hash, so it is retried on every ingest), `notes.skip_detail`,
+`items.owner_display` and `drafts.recipient`.
