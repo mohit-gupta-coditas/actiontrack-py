@@ -313,9 +313,14 @@ Extra command: `actiontrack config show` (§13.6).
   draft_tool = "create_draft"
   ```
 - Auth/OAuth is handled by the MCP server. The CLI stores no Google credentials.
-- Before calling the tool, the client checks that `draft_tool` is in `list_tools()` and fails with a clear message if it is not.
+- Targets the `mcp` 2.x SDK (`mcp>=2.3,<3`) (G16).
+- Before calling the tool, the client checks that `draft_tool` is in `list_tools()` (following pagination) and fails with a clear
+  message if it is not. It also checks the tool's input schema: the mapped argument names must exist, and the tool must not
+  require any argument the client does not send (G8, G18).
 - Timeout of 30 s. On a connection failure the rendered email is saved to `<user_data_dir>/outbox/<owner>-<ts>.eml` so the work
-  is not lost, and the command exits 3.
+  is not lost, and the command exits 3. `<owner>` is a filename-safe slug of the owner key (G17).
+- The draft link is the one the server returns (`link`/`url`) when present, otherwise
+  `https://mail.google.com/mail/#drafts?compose=<id>` (G19).
 
 ### 10.2 No-send guarantee
 - The MCP adapter exposes **only** a `create_draft(to, subject, body)` method. No generic `call_tool` is available to the

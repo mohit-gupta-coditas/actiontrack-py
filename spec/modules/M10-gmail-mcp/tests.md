@@ -1,8 +1,9 @@
 # M10 — Test Cases
 
-Location: `tests/integration/test_gmail_mcp.py`. **Fake server**: an in-process `mcp.server.fastmcp.FastMCP` exposing `create_draft`,
+Location: `tests/integration/test_gmail_mcp.py`. **Fake server**: an in-process `mcp.server.mcpserver.MCPServer` exposing `create_draft`,
 `send_message`, `reply` and `forward`, each recording its calls into a shared list. It is connected through memory streams with a test
-`session_factory`. A variant fake has no `create_draft`, and another returns `isError`, sleeps, or uses different argument names.
+`session_factory`. A variant fake has no `create_draft`, and others return `is_error`, sleep, use different argument names, require an
+extra argument, or page their tool list.
 
 | TC | Given | When | Then | REQ |
 |---|---|---|---|---|
@@ -14,10 +15,13 @@ Location: `tests/integration/test_gmail_mcp.py`. **Fake server**: an in-process 
 | TC-M10-06 | Fake without `create_draft` | `create_draft` | `ExternalServiceError` "does not expose" | REQ-MCP-02 |
 | TC-M10-07 | Fake whose tool expects `recipients` instead of `to` | `create_draft` with default arg_names | `ExternalServiceError` listing the expected/actual names | REQ-MCP-02 (G8) |
 | TC-M10-08 | Same fake, `arg_names.to="recipients"`, `to_as_list=True` | `create_draft` | Succeeds. The fake received `recipients == ["x@…"]` | REQ-MCP-01 (G8) |
-| TC-M10-09 | Fake returning `isError=True` | `create_draft` | `ExternalServiceError` with the server's text | REQ-MCP-04 |
+| TC-M10-09 | Fake returning `is_error=True` | `create_draft` | `ExternalServiceError` with the server's text | REQ-MCP-04 |
 | TC-M10-10 | Fake that sleeps 2 s, `timeout_s=0.5` | `create_draft` | `ExternalServiceError` (timeout) in < 1.5 s | REQ-MCP-04 |
 | TC-M10-11 | stdio transport with `command="does-not-exist-xyz"` | `create_draft` | `ExternalServiceError` (launch failure) | REQ-MCP-04 |
 | TC-M10-12 | stdio transport with no `command` | construct | `UserInputError` naming `gmail_mcp.command` | REQ-MCP-01 |
-| TC-M10-13 | Result forms: structuredContent `{id}`, text JSON `{"draftId":…}`, plain text | parse | id, id, None | REQ-MCP-01 |
+| TC-M10-13 | Result forms: structured_content `{id}`, text JSON `{"draftId":…}`, `{"draft":{"id":…}}`, plain text; with and without a `link`/`url` | parse | id, id, id, None; link = the server's when given, else the built link, None without an ID | REQ-MCP-01 (G19) |
 | TC-M10-14 | `-vv` logging captured | `create_draft` | Logs contain the tool name and arg keys. They don't contain the recipient, subject or body values | REQ-MCP-05 |
 | TC-M10-15 | — | `write_outbox` twice with the same timestamp | Two files (`…eml`, `…-2.eml`). Parsed back with `email.parser`: To/Subject/body match, the status header present | REQ-MCP-04 |
+| TC-M10-16 | Owner keys `priya.shah@coditas.com`, `name:Priya`, `@@@` | `write_outbox` | Files `priya.shah-coditas.com-…`, `name-priya-…`, `unknown-…`; the directory is created | REQ-MCP-04 (G17) |
+| TC-M10-17 | Fake whose `create_draft` also requires `cc` | `create_draft` | `ExternalServiceError` naming `cc`. The fake records no call | REQ-MCP-02 (G18) |
+| TC-M10-18 | Fake that pages `list_tools` (`create_draft` on page 2) | `create_draft` | Succeeds | REQ-MCP-02 (G16) |
