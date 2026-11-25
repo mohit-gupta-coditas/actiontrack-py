@@ -56,7 +56,7 @@ class McpConfig:
     url: str | None = None
     draft_tool: str = "create_draft"
     arg_names: Mapping[str, str] = field(default_factory=lambda: _DEFAULT_ARG_NAMES)
-    to_as_list: bool = False
+    to_as_list: bool = True  # the Gmail connector takes `to` as a list (G20)
     timeout_s: float = 30.0
 
 

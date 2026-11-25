@@ -50,8 +50,8 @@ def draft(adapter: GmailMcpDraftSink) -> DraftResult:
 
 def test_TC_M10_01_create_draft_calls_the_tool_once_with_mapped_args() -> None:
     fake = FakeGmail()
-    result = draft(sink(fake))
-    assert fake.calls == [("create_draft", {"to": TO, "subject": SUBJECT, "body": BODY})]
+    result = draft(sink(fake))  # default config: the Gmail connector's shape (G20)
+    assert fake.calls == [("create_draft", {"to": [TO], "subject": SUBJECT, "body": BODY})]
     assert result.draft_id == "r-123"
     assert result.link == "https://mail.google.com/mail/#drafts?compose=r-123"
     assert result.raw["structured_content"] == {"id": "r-123"}
@@ -109,11 +109,11 @@ def test_TC_M10_07_argument_names_mismatch_lists_expected_and_actual() -> None:
     assert fake.calls == []
 
 
-def test_TC_M10_08_mapped_argument_names_and_list_recipient() -> None:
+def test_TC_M10_08_mapped_argument_names_and_string_recipient() -> None:
     fake = FakeGmail(draft_schema=schema("recipients", "subject", "body"))
     names = MappingProxyType({"to": "recipients", "subject": "subject", "body": "body"})
-    draft(sink(fake, arg_names=names, to_as_list=True))
-    assert fake.calls == [("create_draft", {"recipients": [TO], "subject": SUBJECT, "body": BODY})]
+    draft(sink(fake, arg_names=names, to_as_list=False))
+    assert fake.calls == [("create_draft", {"recipients": TO, "subject": SUBJECT, "body": BODY})]
 
 
 def test_TC_M10_09_tool_error_result_carries_the_server_text() -> None:
@@ -160,6 +160,12 @@ def test_TC_M10_12_stdio_without_command_names_the_setting() -> None:
         (text_result('{"draftId": "r-4", "url": "https://mail.example/d/4"}'), "r-4",
          "https://mail.example/d/4"),
         (text_result('{"id": "r-5"}', structured={"status": "ok"}), "r-5", "#drafts?compose=r-5"),
+        (
+            text_result("ok", structured={"id": "r-6", "threadId": "t-6",
+                                          "viewUrl": "https://mail.google.com/d/6", "url": "x"}),
+            "r-6",
+            "https://mail.google.com/d/6",
+        ),
     ],
 )  # fmt: skip
 def test_TC_M10_13_result_forms(result: Any, draft_id: str | None, link: str | None) -> None:

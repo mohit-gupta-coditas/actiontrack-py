@@ -35,6 +35,7 @@ ALLOWED_TOOLS: Final = frozenset({"create_draft"})
 
 _ARG_KEYS: Final = ("to", "subject", "body")
 _LINK: Final = "https://mail.google.com/mail/#drafts?compose={}"
+_LINK_KEYS: Final = ("viewUrl", "link", "url")  # viewUrl: the Gmail connector (G21)
 _HINT: Final = "check gmail_mcp settings"
 
 log = logging.getLogger(__name__)
@@ -189,9 +190,7 @@ def _parse_result(result: CallToolResult) -> DraftResult:
         if not isinstance(obj, dict):
             continue
         draft_id = draft_id or _draft_id(obj)
-        link = link or next(
-            (v for k in ("link", "url") if isinstance(v := obj.get(k), str) and v), None
-        )
+        link = link or next((v for k in _LINK_KEYS if isinstance(v := obj.get(k), str) and v), None)
     if link is None and draft_id is not None:
         link = _LINK.format(quote(draft_id, safe=""))
     return DraftResult(draft_id, link, result.model_dump(mode="json", exclude_none=True))
