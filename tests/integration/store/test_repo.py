@@ -328,7 +328,7 @@ def test_apply_groups_ignores_unknown_orphan(conn: sqlite3.Connection) -> None:
     assert ItemRepo(conn).ids() == []
 
 
-def test_existing_collects_norms(conn: sqlite3.Connection) -> None:
+def test_existing_keeps_only_the_item_norm(conn: sqlite3.Connection) -> None:
     s1 = src(PRIYA, "Send the quote", "2026-11-04", line=1, path="a.md")
     s2 = src(PRIYA, "Send quotes!", "2026-11-18", line=1, path="b.md")
     g = group(s1, s2)
@@ -337,7 +337,7 @@ def test_existing_collects_norms(conn: sqlite3.Connection) -> None:
     [e] = ItemRepo(conn).existing()
     assert e.id == g.id
     assert e.owner_key == PRIYA
-    assert e.task_norms == {normalize_task("Send the quote"), "send quotes"}
+    assert e.task_norms == {normalize_task("Send the quote")}  # not the joined "send quotes"
     assert (e.status, e.done_source, e.done_at) == ("done", "cli", NOW)
 
 

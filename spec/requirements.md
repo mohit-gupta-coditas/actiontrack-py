@@ -245,11 +245,14 @@ Extra command: `actiontrack config show` (§13.6).
 - For each file, if the `sha256` is unchanged since the last ingest it is skipped (D12). Otherwise the file is parsed, and its old
   `item_sources` rows are removed and re-inserted.
 - Items whose only sources were removed (e.g. the line was deleted from the note) are marked with the flag `orphaned`, not deleted.
+- A note that was ingested before and is no longer in the folder is removed, together with its sources, so its items become
+  `orphaned` (G4). Only notes under the folder being ingested are affected (with `--no-recursive`, only its direct children),
+  so ingesting a different folder orphans nothing. The report counts these as `removed`.
 - Never resets `status='done'` where `done_source='cli'`.
 - All writes for one run happen in a single transaction per file, so a failure on one file does not corrupt the others.
 - **Ingest report** (stdout, plus `--report-json PATH`):
   ```
-  Scanned 34 files: 29 ingested, 2 unchanged, 3 skipped
+  Scanned 34 files: 29 ingested, 2 unchanged, 3 skipped, 0 removed
   Items: 112 found → 87 unique (19 exact merges, 6 fuzzy merges)
   Flags: 5 unassigned, 2 ambiguous_owner, 4 no_due, 1 unparsed_due
   Skipped:
