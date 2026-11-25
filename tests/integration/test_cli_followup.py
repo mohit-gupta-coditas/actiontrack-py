@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections.abc import Iterator
 from datetime import date
@@ -178,5 +179,6 @@ def test_TC_M11_17_missing_url_exit_2_no_outbox(
 
 def test_followup_help_has_examples(capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["followup", "--help"]) == 0
-    out = capsys.readouterr().out
+    # Typer forces rich colour on GitHub Actions (GITHUB_ACTIONS), which splits `--dry-run`.
+    out = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
     assert "--dry-run" in out and "actiontrack followup priya" in out
