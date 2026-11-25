@@ -31,3 +31,5 @@ Location: `tests/unit/core/` (CLI tests use `typer.testing.CliRunner` with `mix_
 | TC-M0-25 | Each dataclass in `models.py` | try to set an attribute | `FrozenInstanceError` | contracts |
 | TC-M0-26 | `IngestReport` built with sample data | `to_json()` → `json.dumps` | Serializes; flags/reasons as strings, dates ISO | contracts |
 | TC-M0-27 | Stub command `ingest` (before M7) | invoke | `Error: not implemented`, exit 1. Retired with M11: no stub is left | REQ-CLI-06 |
+| TC-M0-28 | Non-TTY stdout, `FORCE_COLOR=1`, legacy Windows console detected | `make_output`, print `[red]x[/red]` | ANSI `[31m` in the output (G35) | REQ-CLI-04 |
+| TC-M0-29 | A command whose stdout reader has gone (`BrokenPipeError`, rich's broken-pipe hook, or a Windows `OSError` with stdout unflushable) | `run` | Exit 0, nothing on stderr (G36) | REQ-CLI-06 |

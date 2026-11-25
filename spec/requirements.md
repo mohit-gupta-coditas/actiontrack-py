@@ -428,7 +428,8 @@ The tool follows widely accepted CLI conventions (see [clig.dev](https://clig.de
 - **stdout is for data, stderr is for everything else** (progress, warnings, errors, the ingest summary when `--json` is used).
   This keeps `actiontrack list --json | jq …` clean.
 - Output for people (rich tables, colour) only when stdout is a TTY. Plain output when piped.
-- Respect `NO_COLOR` and `--no-color`. Colour is never the only signal (overdue also gets the `⚠` marker).
+- Respect `NO_COLOR` and `--no-color`. Colour is never the only signal (overdue also gets the `⚠` marker). `FORCE_COLOR` forces
+  ANSI colour even when piped, on every OS (G35).
 - `--json` output has a documented, stable schema with a `"schema_version"` field. Breaking changes bump it.
 - `-q/--quiet` suppresses everything except data and errors. `-v` / `-vv` increase the log level (INFO / DEBUG), and logs go to stderr.
 - Progress bar for `ingest` on stderr, only on a TTY.
@@ -438,6 +439,7 @@ The tool follows widely accepted CLI conventions (see [clig.dev](https://clig.de
 - Errors are short, written for people, and say what to do next, e.g.
   `Error: ID "a3f" matches 2 items (a3f91c, a3f0d2). Use more characters.`
 - No Python traceback by default. `--debug` (or `ACTIONTRACK_DEBUG=1`) shows the full traceback.
+- If the reader of stdout goes away (`actiontrack list | head -3`), the command stops quietly with exit 0 (G36).
 - Exit codes are fixed and documented (§12). Typer/Click usage errors use exit 2.
 - Ctrl-C rolls back the current DB transaction, prints `Interrupted`, and exits 130.
 

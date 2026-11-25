@@ -110,6 +110,8 @@ def make_output(*, no_color: bool, quiet: bool, verbosity: int, env: Mapping[str
 def configure_stdio_utf8() -> None     # sys.stdout/stderr.reconfigure(encoding="utf-8", errors="replace")
 ```
 - Colour is used only if the stream is a TTY **and** `NO_COLOR` is not set **and** `--no-color` is not passed.
+- `FORCE_COLOR` (rich) forces colour on a non-TTY. With it set, the consoles are built with `legacy_windows=False`, so forced colour
+  is ANSI on Windows too instead of Win32 console calls that a pipe drops (G35).
 - `logging` is configured to write to `Output.err` at the level set by verbosity. `-q` forces ERROR.
 - The helpers `info()`, `warn()` and `error()` are methods on `Output` and all write to stderr. `warn` and `info` are
   suppressed by `-q`. `Output.data(text)` writes unwrapped plain text to stdout (for JSON).
@@ -129,6 +131,8 @@ def configure_stdio_utf8() -> None     # sys.stdout/stderr.reconfigure(encoding=
   `main()` = `configure_stdio_utf8()` + `sys.exit(run())`. The boundary:
   - `ActionTrackError` → `Error: <message>` (+ `Hint: <hint>`) on stderr, `exit(e.exit_code)`.
   - `KeyboardInterrupt` → `Interrupted` on stderr, exit 130.
+  - stdout closed by its reader (rich's broken-pipe hook, `BrokenPipeError`, or on Windows an `OSError` after which stdout can't
+    be flushed) → stdout is pointed at `os.devnull`, nothing is printed, exit 0 (G36).
   - Any other `Exception` → `Error: internal error (<TypeName>). Re-run with --debug for details.`, exit 1.
   - `--debug` / `ACTIONTRACK_DEBUG=1` → also print the full traceback to stderr.
 - `config show` prints each effective key, its value and its source (`flag/env/file/default`). `--json` is supported.

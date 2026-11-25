@@ -101,7 +101,7 @@ Once a gap is confirmed, the root spec is updated and the gap is marked resolved
 G7, G12, G13, G14 and G15 with M9 (root spec §9.4, §11),
 G8, G16–G22 with M10 (root spec §10.1),
 Q5 and G23–G27 with M11 (root spec §9.4, §17, §19),
-and G28–G31 with M12 (root spec §13.1, §17).
+and G28–G36 with M12 (root spec §13.1, §13.4, §13.5, §17).
 
 | # | Gap | Proposed resolution | Affects |
 |---|---|---|---|
@@ -136,6 +136,11 @@ and G28–G31 with M12 (root spec §13.1, §17).
 | G29 ✅ | The manual Gmail smoke test (T12.10) needs an authenticated MCP endpoint the CLI can reach, which CI and the agent lack | The README documents the exact steps. The PR lists T12.10 as pending, and `v0.1.0` is tagged only after the user confirms the draft appeared and nothing was sent | M12 |
 | G30 ✅ | `trace_check.py` must detect REQ IDs owned by more than one module, but nothing says where ownership is read from; §18 also has a range row (`REQ-ACC-01..11`) | Ownership comes from the `REQ IDs owned` column of plan §2. Ranges (`CLI-01..07`, `REQ-ACC-01..11`) are expanded in both files | M12 |
 | G31 ✅ | Root §13.1 names the entry point `actiontrack.cli:app`, but the code uses `actiontrack.cli:main` | `cli:main`: it adds UTF-8 stdio and the exit-code mapping. The root spec is fixed | M0, M12 |
+| G32 ✅ | TC-M12-02 reads `list --json`, which shows only open items, but most sample duplicates end `[x]` in a later note | Read `list --json` and `list --status done --json` and check each duplicate across both | M12 |
+| G33 ✅ | TC-M12-05 queries `--owner Rahul`, which is ambiguous (exit 2) because the sample has Rahul Mehta and Rahul Verma | The fixture note's only attendee is Rahul Mehta, and the test queries `--owner "Rahul Mehta"` | M12 |
+| G34 ✅ | `expected.yaml` has no expected due per duplicate, and nothing checks `min_unique_items` | Each duplicate may carry a hand-computed `due` (D8) and `status`. TC-M12-01 checks the report's unique count ≥ `min_unique_items` | M12 |
+| G35 ✅ | On Windows, `FORCE_COLOR` on a pipe makes rich use legacy Win32 console calls, so no ANSI reaches the pipe (TC-M12-06) | With `FORCE_COLOR` set, the consoles use `legacy_windows=False`: forced colour is ANSI on every OS | M0 |
+| G36 ✅ | `actiontrack list \| head -3` prints `Error: internal error (OSError)` and exits 1 when the reader closes the pipe | A closed stdout ends the command quietly: stdout → `os.devnull`, exit 0, nothing on stderr | M0 |
 
 ## 6. Traceability check (run before each PR)
 
