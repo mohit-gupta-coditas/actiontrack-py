@@ -15,7 +15,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from actiontrack.dedup import DedupResult, normalize_task
+from actiontrack.dedup import DedupResult
 from actiontrack.models import (
     Attendee,
     DueResolution,
@@ -236,12 +236,12 @@ class ItemRepo:
         self._conn = conn
 
     def existing(self) -> list[ExistingItem]:
-        """Every stored item, with the norms of its own task and of each source linked to it."""
-        norms: dict[str, set[str]] = defaultdict(set)
-        for item_id, task in self._conn.execute(
-            "SELECT item_id, task FROM item_sources WHERE item_id IS NOT NULL"
-        ):
-            norms[item_id].add(normalize_task(task))
+        """Every stored item, with only its own `task_norm` as norms.
+
+        The norms of fuzzy-joined sources are left out on purpose: remembering them would turn
+        every past fuzzy merge into an exact match, so `--no-fuzzy` or a higher threshold could
+        never split it again (G2: a config change applies to every item on the next ingest).
+        """
         rows = self._conn.execute(
             "SELECT id, owner_key, task_norm, status, done_source, done_at FROM items ORDER BY id"
         )
@@ -249,7 +249,7 @@ class ItemRepo:
             ExistingItem(
                 id=r["id"],
                 owner_key=r["owner_key"],
-                task_norms=frozenset(norms[r["id"]] | {r["task_norm"]}),
+                task_norms=frozenset({r["task_norm"]}),
                 status=r["status"],
                 done_source=r["done_source"],
                 done_at=_datetime(r["done_at"]),

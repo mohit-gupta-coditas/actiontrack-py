@@ -7,6 +7,7 @@ functions, never at module level here or in anything imported from here (REQ-CLI
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import traceback
@@ -16,6 +17,8 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 
 # Typer vendors Click; its ClickException (usage errors, bad parameters) is not re-exported.
@@ -25,7 +28,7 @@ from actiontrack import __version__
 from actiontrack.clock import Clock, clock_from_env
 from actiontrack.config import Config, load_config, settings_view
 from actiontrack.console import Output, configure_stdio_utf8, make_output
-from actiontrack.errors import ActionTrackError, ExitCode, FatalError
+from actiontrack.errors import ActionTrackError, ExitCode, FatalError, UserInputError
 from actiontrack.models import JSON_SCHEMA_VERSION, to_jsonable
 
 PROG_NAME = "actiontrack"
@@ -100,20 +103,46 @@ def create_app() -> typer.Typer:
 
     @app.command()
     def ingest(
+        ctx: typer.Context,
         folder: Annotated[Path, typer.Argument(help="Folder of meeting notes (*.md).")],
+        recursive: Annotated[
+            bool,
+            typer.Option("--recursive/--no-recursive", help="Also read notes in sub-folders."),
+        ] = True,
+        no_fuzzy: Annotated[
+            bool, typer.Option("--no-fuzzy", help="Merge exact duplicates only, for this run.")
+        ] = False,
+        report_json: Annotated[
+            Path | None,
+            typer.Option(
+                "--report-json",
+                metavar="PATH",
+                help="Also write the report as JSON to PATH.",
+                show_default=False,
+            ),
+        ] = None,
     ) -> None:
         """Ingest meeting notes and update the action item store.
 
         Extracts action items from every Markdown note in FOLDER and merges duplicates.
 
-        Unchanged files are skipped, so re-running is safe.
+        Unchanged files are skipped, so re-running is safe. Notes that can't be parsed are
+        listed in the report and the run carries on.
 
         \b
         Examples:
           actiontrack ingest ./notes
           actiontrack ingest ./notes --no-recursive
+          actiontrack -v ingest ./notes --report-json report.json
         """
-        raise FatalError("not implemented")
+        app_ctx: AppContext = ctx.find_root().obj
+        _ingest(
+            app_ctx,
+            folder,
+            recursive=recursive,
+            fuzzy_enabled=False if no_fuzzy else None,
+            report_json=report_json,
+        )
 
     @app.command("list")
     def list_items() -> None:
@@ -211,6 +240,83 @@ def _config_show(app_ctx: AppContext, *, as_json: bool) -> None:
         shown = to_jsonable(value)
         table.add_row(key, shown if isinstance(shown, str) else json.dumps(shown), source)
     output.out.print(table)
+
+
+def _ingest(
+    app_ctx: AppContext,
+    folder: Path,
+    *,
+    recursive: bool,
+    fuzzy_enabled: bool | None,
+    report_json: Path | None,
+) -> None:
+    from actiontrack.dedup import shortest_unique_prefixes
+    from actiontrack.services.ingest import LOGGER_NAME, check_folder, format_report, run_ingest
+    from actiontrack.store.db import connect
+    from actiontrack.store.repo import ItemRepo
+
+    output = app_ctx.output
+    check_folder(folder)  # before connect, so a mistyped folder doesn't create a database
+    if app_ctx.debug:
+        logging.getLogger(LOGGER_NAME).setLevel(logging.DEBUG)  # per-file tracebacks
+    conn = connect(app_ctx.config.db_path)
+    try:
+        show_progress = output.err.is_terminal and not output.quiet
+        report = run_ingest(
+            folder,
+            recursive=recursive,
+            conn=conn,
+            cfg=app_ctx.config,
+            clock=app_ctx.clock,
+            fuzzy_enabled=fuzzy_enabled,
+            progress=_RichProgress(output.err) if show_progress else None,
+        )
+        short_ids = shortest_unique_prefixes(ItemRepo(conn).ids())
+    finally:
+        conn.close()
+
+    lines = format_report(
+        report,
+        quiet=output.quiet,
+        verbose=output.verbosity > 0,
+        short_ids=short_ids,
+        cwd=Path.cwd(),
+    )
+    for line in lines:
+        output.data(line)
+    if report_json is not None:
+        text = json.dumps(report.to_json(), indent=2, ensure_ascii=False) + "\n"
+        try:
+            report_json.write_text(text, encoding="utf-8")
+        except OSError as e:
+            raise UserInputError(
+                f"cannot write the JSON report to {report_json}: {e.strerror or e}"
+            ) from e
+
+
+class _RichProgress:
+    """`ProgressSink` drawing a transient bar on stderr (REQ-INGEST-09)."""
+
+    def __init__(self, console: Console) -> None:
+        self._progress = Progress(
+            TextColumn("Ingesting"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("{task.fields[name]}"),
+            console=console,
+            transient=True,
+        )
+        self._task = self._progress.add_task("ingest", total=None, name="")
+
+    def start(self, total: int) -> None:
+        self._progress.update(self._task, total=total)
+        self._progress.start()
+
+    def advance(self, path: Path) -> None:
+        self._progress.update(self._task, advance=1, name=path.name)
+
+    def finish(self) -> None:
+        self._progress.stop()
 
 
 app = create_app()

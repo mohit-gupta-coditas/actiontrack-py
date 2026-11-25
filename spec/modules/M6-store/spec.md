@@ -100,7 +100,8 @@ class PeopleRepo:
 
 class ItemRepo:
     def existing(self) -> list[ExistingItem]
-        # task_norms = the item's task_norm ∪ normalize_task(task) of every source linked to it
+        # task_norms = {the item's own task_norm} only. Fuzzy-joined source norms are not remembered, so a
+        # later run with --no-fuzzy or a higher threshold can split the item again (G2, M7 TC-M7-18)
     def apply_groups(self, result: DedupResult) -> None
         # upsert every group; unlink all sources, then link each group's sources; add ORPHANED flag to orphaned_ids
         # (status untouched, unknown ids ignored); group flags replace the stored ones, so ORPHANED goes when sources return
