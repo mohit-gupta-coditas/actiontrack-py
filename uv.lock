@@ -28,6 +28,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "types-dateparser" },
     { name = "types-pyyaml" },
 ]
 
@@ -49,6 +50,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.6" },
+    { name = "types-dateparser", specifier = ">=1.4.3.20261122" },
     { name = "types-pyyaml" },
 ]
 
@@ -1824,6 +1826,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bf/21/37383ece7d0a4995fb8ea97729207c4292b3ff94085002f37b2387063cfb/typer-0.29.2.tar.gz", hash = "sha256:b1998dc5f2c3dedafa1517a9521fa944cc4dc1fadcea085d81a3b10ebcaeb075", size = 205728, upload-time = "2026-11-18T11:09:46.189Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/f3/864dcb0e165b52e9f75aa3c7e0aeeb9876f139c66eb14d87856bb173b0fa/typer-0.29.2-py3-none-any.whl", hash = "sha256:f30731f8ca758368b836b3714872e58e395cef8fcaff918c853b1969ed5274e7", size = 121041, upload-time = "2026-11-18T11:09:45.03Z" },
+]
+
+[[package]]
+name = "types-dateparser"
+version = "1.4.3.20261122"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/e3/fdd62bd4497187d6ef8abc9d49aafc0e53f1087f9f8d07e4045d1ee2d921/types_dateparser-1.4.3.20261122.tar.gz", hash = "sha256:ec2ca4ea8d8f713c1d54be53624f0a76efe1e5caf48d2573e3d6b1df66c58487", size = 18437, upload-time = "2026-11-22T08:59:14.516Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/34/57dd85533eb7d3c643aff848f1bbc140227e6d13b013b889efa1b1e9d394/types_dateparser-1.4.3.20261122-py3-none-any.whl", hash = "sha256:c5f6ea6c07c9d4e477103c1b1112f7ec9850774f38d3550cbb29fa512a98d41b", size = 25812, upload-time = "2026-11-22T08:59:13.718Z" },
 ]
 
 [[package]]

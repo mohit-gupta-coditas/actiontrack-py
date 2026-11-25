@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Root spec** | [requirements.md](requirements.md). This is the source of truth, and module specs are derived from it |
-| **Status** | Planning. No module has started |
+| **Status** | In progress. M0 and M1 done |
 | **Date** | 2026-11-25 |
 
 ---
@@ -80,7 +80,7 @@ M0 Foundation ───┼─> M3 Dates ──┘                         ├─
 | Module | Spec | Tests written | Implemented | DoD | PR |
 |---|---|---|---|---|---|
 | M0 | Draft | ☑ | ☑ | ☑ | — |
-| M1 | Draft | ☐ | ☐ | ☐ | — |
+| M1 | Draft | ☑ | ☑ | ☑ | — |
 | M2 | Draft | ☐ | ☐ | ☐ | — |
 | M3 | Draft | ☐ | ☐ | ☐ | — |
 | M4 | Draft | ☐ | ☐ | ☐ | — |
