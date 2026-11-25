@@ -26,8 +26,8 @@ _MONTH = (
 )
 _WEEKDAY_INDEX = {d: i for i, d in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
 
-# The expression after a connector: up to the first `,` `;` `(` or ` - `.
-_EXPR = r"(?P<expr>(?:(?! - )[^,;(])+)"
+# The expression after a connector: up to the first `,` `;` `(` `)` or ` - `.
+_EXPR = r"(?P<expr>(?:(?! - )[^,;()])+)"
 _CONNECTOR = re.compile(
     rf"\b(?:by|before|due(?:\s+on|\s+by)?|until|no\s+later\s+than|deadline:?)\s+{_EXPR}",
     re.IGNORECASE,
